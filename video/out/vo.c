@@ -133,6 +133,9 @@ struct vo_internal {
 
     int64_t flip_queue_offset; // queue flip events at most this much in advance
 
+    int64_t last_flip;
+    int64_t vsync_interval;
+
     int64_t wakeup_pts;             // time at which to pull frame from decoder
 
     bool rendering;                 // true if an image is being rendered
@@ -499,9 +502,23 @@ void vo_wait_frame(struct vo *vo)
     pthread_mutex_unlock(&in->lock);
 }
 
+static int64_t prev_sync(struct vo *vo, int64_t ts)
+{
+    struct vo_internal *in = vo->in;
+
+    int64_t diff = (int64_t)(ts - in->last_flip);
+    int64_t offset = diff % in->vsync_interval;
+    if (offset < 0)
+        offset += in->vsync_interval;
+    return ts - offset;
+}
+
 static bool render_frame(struct vo *vo)
 {
     struct vo_internal *in = vo->in;
+
+    double display_fps = 59.954;
+    in->vsync_interval = 1e6 / display_fps;
 
     pthread_mutex_lock(&in->lock);
 
@@ -518,6 +535,12 @@ static bool render_frame(struct vo *vo)
     in->frame_queued = false;
     in->frame_image = NULL;
 
+    // The next time a flip (probably) happens.
+    int64_t next_vsync = prev_sync(vo, mp_time_us()) + in->vsync_interval;
+    int64_t end_time = pts + duration;
+    //MP_WARN(vo, "t: %ld %ld\n", next_vsync, end_time);
+    bool drop = end_time < next_vsync;
+
     pthread_mutex_unlock(&in->lock);
 
     vo->driver->draw_image(vo, img);
@@ -530,10 +553,14 @@ static bool render_frame(struct vo *vo)
         mp_sleep_us(target - now);
     }
 
-    if (vo->driver->flip_page_timed)
-        vo->driver->flip_page_timed(vo, pts, duration);
-    else
-        vo->driver->flip_page(vo);
+    if (!drop) {
+        if (vo->driver->flip_page_timed)
+            vo->driver->flip_page_timed(vo, pts, duration);
+        else
+            vo->driver->flip_page(vo);
+
+        in->last_flip = mp_time_us();
+    }
 
     vo->want_redraw = false;
 

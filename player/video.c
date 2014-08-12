@@ -537,6 +537,7 @@ static int update_video(struct MPContext *mpctx, double endpts,
 
     // Already enough video buffered?
     bool vo_framedrop = !!mpctx->video_out->driver->flip_page_timed;
+    vo_framedrop = true;
     int min_frames = vo_framedrop ? 2 : 1; // framedrop needs duration
     if (!mpctx->next_frame[min_frames - 1]) {
         int r = video_output_image(mpctx, endpts);
