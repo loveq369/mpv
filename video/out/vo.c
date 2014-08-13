@@ -137,6 +137,7 @@ struct vo_internal {
     int64_t vsync_interval;
     int64_t drop_count;
     bool dropped_frame;             // the previous frame was dropped
+    struct mp_image *dropped_image; // used to possibly redraw the dropped frame
 
     int64_t wakeup_pts;             // time at which to pull frame from decoder
 
@@ -366,6 +367,7 @@ static void forget_frames(struct vo *vo)
     in->hasframe = false;
     in->frame_queued = false;
     mp_image_unrefp(&in->frame_image);
+    mp_image_unrefp(&in->dropped_image);
 }
 
 #ifndef __MINGW32__
@@ -532,6 +534,8 @@ static bool render_frame(struct vo *vo)
         return false;
     }
 
+    mp_image_unrefp(&in->dropped_image);
+
     assert(!!img == in->frame_queued);
     in->rendering = true;
     in->frame_queued = false;
@@ -541,39 +545,43 @@ static bool render_frame(struct vo *vo)
     int64_t next_vsync = prev_sync(vo, mp_time_us()) + in->vsync_interval;
     int64_t end_time = pts + duration;
     //MP_WARN(vo, "t: %ld %ld\n", next_vsync, end_time);
-    bool drop = end_time < next_vsync;
-    drop &= !!(vo->global->opts->frame_dropping & 2);
+    in->dropped_frame = end_time < next_vsync;
+    in->dropped_frame &= !!(vo->global->opts->frame_dropping & 2);
 
-    pthread_mutex_unlock(&in->lock);
+    if (in->dropped_frame) {
+        in->drop_count += 1;
+        in->dropped_image = img;
+    } else {
+        pthread_mutex_unlock(&in->lock);
 
-    vo->driver->draw_image(vo, img);
+        vo->driver->draw_image(vo, img);
 
-    int64_t target = pts - in->flip_queue_offset;
-    while (1) {
-        int64_t now = mp_time_us();
-        if (target <= now)
-            break;
-        mp_sleep_us(target - now);
-    }
+        int64_t target = pts - in->flip_queue_offset;
+        while (1) {
+            int64_t now = mp_time_us();
+            if (target <= now)
+                break;
+            mp_sleep_us(target - now);
+        }
 
-    if (!drop) {
         if (vo->driver->flip_page_timed)
             vo->driver->flip_page_timed(vo, pts, duration);
         else
             vo->driver->flip_page(vo);
 
         in->last_flip = mp_time_us();
+
+        pthread_mutex_lock(&in->lock);
     }
 
     vo->want_redraw = false;
 
-    pthread_mutex_lock(&in->lock);
     in->request_redraw = false;
     in->rendering = false;
-    in->dropped_frame = drop;
-    in->drop_count += !!drop;
+
     pthread_cond_signal(&in->wakeup); // for vo_wait_frame()
     mp_input_wakeup(vo->input_ctx);
+
     pthread_mutex_unlock(&in->lock);
 
     return true;
@@ -585,12 +593,23 @@ static void do_redraw(struct vo *vo)
 
     pthread_mutex_lock(&in->lock);
     in->request_redraw = false;
+    struct mp_image *img = in->dropped_image;
+    in->dropped_image = false;
+    in->dropped_frame = false;
     pthread_mutex_unlock(&in->lock);
 
     vo->want_redraw = false;
 
-    if (!vo->config_ok || vo->driver->control(vo, VOCTRL_REDRAW_FRAME, NULL) < 1)
+    if (!vo->config_ok)
         return;
+
+    if (img) {
+        MP_WARN(vo, "durp\n");
+        vo->driver->draw_image(vo, img);
+    } else {
+        if (vo->driver->control(vo, VOCTRL_REDRAW_FRAME, NULL) < 1)
+            return;
+    }
 
     if (vo->driver->flip_page_timed)
         vo->driver->flip_page_timed(vo, 0, -1);
