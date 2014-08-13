@@ -282,6 +282,9 @@ bool vo_has_frame(struct vo *vo);
 void vo_redraw(struct vo *vo);
 void vo_seek_reset(struct vo *vo);
 void vo_destroy(struct vo *vo);
+void vo_pause(struct vo *vo);
+void vo_resume(struct vo *vo);
+int64_t vo_get_drop_count(struct vo *vo);
 
 void vo_set_flip_queue_offset(struct vo *vo, int64_t us);
 void vo_wakeup(struct vo *vo);
