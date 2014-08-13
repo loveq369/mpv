@@ -570,6 +570,7 @@ static bool render_frame(struct vo *vo)
             vo->driver->flip_page(vo);
 
         in->last_flip = mp_time_us();
+        MP_DBG(vo, "phase: %ld\n", (long)(in->last_flip % in->vsync_interval));
 
         pthread_mutex_lock(&in->lock);
     }
