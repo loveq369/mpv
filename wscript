@@ -160,6 +160,18 @@ iconv support use --disable-iconv.",
         'deps_any': [ 'os-win32', 'os-cygwin'],
         'func': check_true
     }, {
+        'name': '--waio',
+        'desc': 'libwaio for win32',
+        'deps': [ 'os-win32' ],
+        'deps_neg': [ 'os-cygwin' ],
+        'func': check_libs(['waio'],
+                    check_statement('waio/waio.h', 'waio_alloc(0, 0, 0, 0)')),
+    }, {
+        'name': 'nowaio',
+        'desc': 'no libwaio',
+        'deps_neg': ['waio'],
+        'func': check_true,
+    }, {
         'name': 'videoio',
         'desc': 'videoio.h',
         'func': check_headers('sys/videoio.h')

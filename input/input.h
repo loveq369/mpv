@@ -257,6 +257,7 @@ void mp_input_run_cmd(struct input_ctx *ictx, int def_flags, const char **cmd,
                       const char *location);
 
 void mp_input_add_pipe(struct input_ctx *ictx, const char *filename);
+void mp_input_add_win32_pipe(struct input_ctx *ictx, const char *filename);
 
 void mp_input_set_main_thread(struct input_ctx *ictx);
 
