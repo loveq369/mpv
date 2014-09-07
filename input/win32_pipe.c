@@ -8,7 +8,6 @@
 #include "common/msg.h"
 #include "osdep/io.h"
 #include "input.h"
-#include "cmd_parse.h"
 
 struct priv {
     struct mp_log *log;
@@ -26,7 +25,7 @@ static void *reader_thread(void *ctx)
     int mode = O_RDONLY;
     int fd = -1;
     bool close_fd = true;
-    if (strcmp(p->filename, "/dev/stdin") == 0) { // mainly for win32
+    if (strcmp(p->filename, "/dev/stdin") == 0) { // for symmetry with unix
         fd = STDIN_FILENO;
         close_fd = false;
     }
@@ -43,13 +42,13 @@ static void *reader_thread(void *ctx)
         goto done;
     }
 
+    char buffer[128];
+    struct waio_aiocb cb = {
+        .aio_buf = buffer,
+        .aio_nbytes = sizeof(buffer),
+        .hsignal = p->terminate,
+    };
     while (1) {
-        char buffer[128];
-        struct waio_aiocb cb = {
-            .aio_buf = buffer,
-            .aio_nbytes = sizeof(buffer),
-            .hsignal = p->terminate,
-        };
         if (waio_read(waio, &cb)) {
             MP_ERR(p, "Read operation failed.\n");
             break;
@@ -64,10 +63,10 @@ static void *reader_thread(void *ctx)
     }
 
 done:
+    MP_VERBOSE(p, "Exiting.\n");
+    waio_free(waio);
     if (close_fd)
         close(fd);
-
-    waio_free(waio);
     talloc_free(p);
     return NULL;
 }
