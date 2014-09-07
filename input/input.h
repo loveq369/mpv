@@ -91,29 +91,26 @@ struct mp_input_src {
 
     struct mp_input_src_internal *in;
 
-    // If not-NULL: called before destroying the input_src. Should close the
-    // underlying device, and free all memory.
-    void (*close)(struct mp_input_src *src);
+    // If not-NULL: called before destroying the input_src. Should unblock the
+    // reader loop, and make it exit.
+    void (*cancel)(struct mp_input_src *src);
+    // Called after the reader thread returns, and cancel() can't be called again.
+    void (*uninit)(struct mp_input_src *src);
 
     // For free use by the implementer.
     void *priv;
 };
 
-/* Add a new input source. The input code can create a new thread, which feeds
- * keys or commands to input_ctx. mp_input_src.close must be set.
- */
-struct mp_input_src *mp_input_add_src(struct input_ctx *ictx);
-
 // Add an input source that runs on a thread. The source is automatically
 // removed if the thread loop exits.
 //  ctx: this is passed to loop_fn.
 //  loop_fn: this is called once inside of a new thread, and should not return
-//      until all input is read, or src->close is called by another thread.
+//      until all input is read, or src->cancel is called by another thread.
 //      You must call mp_input_src_init_done(src) early during init to signal
-//      success (then src->close may be called at a later point); on failure,
+//      success (then src->cancel may be called at a later point); on failure,
 //      return from loop_fn immediately.
 // Returns >=0 on success, <0 on failure to allocate resources.
-// Do not set src->close after mp_input_src_init_done() has been called.
+// Do not set src->cancel after mp_input_src_init_done() has been called.
 int mp_input_add_thread_src(struct input_ctx *ictx, void *ctx,
     void (*loop_fn)(struct mp_input_src *src, void *ctx));
 
