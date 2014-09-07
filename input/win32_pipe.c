@@ -53,8 +53,8 @@ static void *reader_thread(void *ctx)
             MP_ERR(p, "Read operation failed.\n");
             break;
         }
-        waio_suspend(waio, (const struct waio_aiocb *[]){&cb}, 1, NULL);
-        if (WaitForSingleObject(p->terminate, 0) != WAIT_TIMEOUT)
+        const struct waio_aiocb *cbs[] = {&cb};
+        if (waio_suspend(waio, cbs, 1, NULL) == -EINTR)
             break;
         ssize_t r = waio_return(waio, &cb);
         if (r <= 0)
@@ -63,7 +63,6 @@ static void *reader_thread(void *ctx)
     }
 
 done:
-    MP_VERBOSE(p, "Exiting.\n");
     waio_free(waio);
     if (close_fd)
         close(fd);
@@ -74,6 +73,7 @@ done:
 static void close_pipe(struct mp_input_src *src)
 {
     struct priv *p = src->priv;
+    MP_VERBOSE(p, "Exiting.\n");
     // Cancel I/O and make the reader thread exit.
     SetEvent(p->terminate);
     pthread_join(p->thread, NULL);
