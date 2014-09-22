@@ -396,11 +396,15 @@ static int init(struct ao *ao)
                                    flags, NULL, NULL) < 0)
         goto unlock_and_fail;
     MP_WARN(ao, "step 3\n");
-    /* Wait until the stream is ready */
-    pa_threaded_mainloop_wait(priv->mainloop);
-
-    if (pa_stream_get_state(priv->stream) != PA_STREAM_READY)
-        goto unlock_and_fail;
+    while (1) {
+        int state = pa_stream_get_state(priv->stream);
+        if (state == PA_STREAM_READY)
+            break;
+        if (!PA_STREAM_IS_GOOD(state))
+            goto unlock_and_fail;
+        /* Wait until the stream is ready */
+        pa_threaded_mainloop_wait(priv->mainloop);
+    }
     MP_WARN(ao, "step 4\n");
     pa_threaded_mainloop_unlock(priv->mainloop);
 
