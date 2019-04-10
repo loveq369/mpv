@@ -1,4 +1,6 @@
-/* Permission to use, copy, modify, and/or distribute this software for any
+/* Copyright (C) 2017 the mpv developers
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -15,6 +17,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include "osdep/strnlen.h"
 
 #define TA_NO_WRAPPERS
 #include "ta.h"
@@ -106,7 +109,9 @@ static bool strndup_append_at(char **str, size_t at, const char *append,
         *str = t;
     }
 
-    memcpy(*str + at, append, append_len);
+    if (append_len)
+        memcpy(*str + at, append, append_len);
+
     (*str)[at + append_len] = '\0';
 
     ta_dbg_mark_as_string(*str);
@@ -247,7 +252,7 @@ bool ta_asprintf_append(char **str, const char *fmt, ...)
 
 bool ta_vasprintf_append(char **str, const char *fmt, va_list ap)
 {
-    return ta_vasprintf_append_at(str, str && *str ? strlen(*str) : 0, fmt, ap);
+    return ta_vasprintf_append_at(str, *str ? strlen(*str) : 0, fmt, ap);
 }
 
 /* Append the formatted string at the end of the allocation of *str. It

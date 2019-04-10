@@ -1,19 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -43,7 +42,7 @@ struct sub_cache {
 };
 
 struct part {
-    int bitmap_pos_id;
+    int change_id;
     int imgfmt;
     enum mp_csp colorspace;
     enum mp_csp_levels levels;
@@ -65,121 +64,80 @@ static bool get_sub_area(struct mp_rect bb, struct mp_image *temp,
                          struct sub_bitmap *sb, struct mp_image *out_area,
                          int *out_src_x, int *out_src_y);
 
-#define ACCURATE
-#define CONDITIONAL
+#define CONDITIONAL 1
 
-static void blend_const16_alpha(void *dst, int dst_stride, uint16_t srcp,
-                                uint8_t *srca, int srca_stride, uint8_t srcamul,
-                                int w, int h)
-{
-    if (!srcamul)
-        return;
-    for (int y = 0; y < h; y++) {
-        uint16_t *dst_r = (uint16_t *)((uint8_t *)dst + dst_stride * y);
-        uint8_t *srca_r = srca + srca_stride * y;
-        for (int x = 0; x < w; x++) {
-            uint32_t srcap = srca_r[x];
-#ifdef CONDITIONAL
-            if (!srcap)
-                continue;
-#endif
-            srcap *= srcamul; // now 0..65025
-            dst_r[x] = (srcp * srcap + dst_r[x] * (65025 - srcap) + 32512) / 65025;
-        }
+#define BLEND_CONST_ALPHA(TYPE)                                                 \
+    TYPE *dst_r = dst_rp;                                                       \
+    for (int x = 0; x < w; x++) {                                               \
+        uint32_t srcap = srca_r[x];                                             \
+        if (CONDITIONAL && !srcap) continue;                                    \
+        srcap *= srcamul; /* now 0..65025 */                                    \
+        dst_r[x] = (srcp * srcap + dst_r[x] * (65025 - srcap) + 32512) / 65025; \
     }
-}
 
-static void blend_const8_alpha(void *dst, int dst_stride, uint16_t srcp,
-                               uint8_t *srca, int srca_stride, uint8_t srcamul,
-                               int w, int h)
-{
-    if (!srcamul)
-        return;
-    for (int y = 0; y < h; y++) {
-        uint8_t *dst_r = (uint8_t *)dst + dst_stride * y;
-        uint8_t *srca_r = srca + srca_stride * y;
-        for (int x = 0; x < w; x++) {
-            uint32_t srcap = srca_r[x];
-#ifdef CONDITIONAL
-            if (!srcap)
-                continue;
-#endif
-#ifdef ACCURATE
-            srcap *= srcamul; // now 0..65025
-            dst_r[x] = (srcp * srcap + dst_r[x] * (65025 - srcap) + 32512) / 65025;
-#else
-            srcap = (srcap * srcamul + 255) >> 8;
-            dst_r[x] = (srcp * srcap + dst_r[x] * (255 - srcap) + 255) >> 8;
-#endif
-        }
-    }
-}
-
+// dst = srcp * (srca * srcamul) + dst * (1 - (srca * srcamul))
 static void blend_const_alpha(void *dst, int dst_stride, int srcp,
                               uint8_t *srca, int srca_stride, uint8_t srcamul,
                               int w, int h, int bytes)
 {
-    if (bytes == 2) {
-        blend_const16_alpha(dst, dst_stride, srcp, srca, srca_stride, srcamul,
-                            w, h);
-    } else if (bytes == 1) {
-        blend_const8_alpha(dst, dst_stride, srcp, srca, srca_stride, srcamul,
-                           w, h);
-    }
-}
-
-static void blend_src16_alpha(void *dst, int dst_stride, void *src,
-                              int src_stride, uint8_t *srca, int srca_stride,
-                              int w, int h)
-{
+    if (!srcamul)
+        return;
     for (int y = 0; y < h; y++) {
-        uint16_t *dst_r = (uint16_t *)((uint8_t *)dst + dst_stride * y);
-        uint16_t *src_r = (uint16_t *)((uint8_t *)src + src_stride * y);
+        void *dst_rp = (uint8_t *)dst + dst_stride * y;
         uint8_t *srca_r = srca + srca_stride * y;
-        for (int x = 0; x < w; x++) {
-            uint32_t srcap = srca_r[x];
-#ifdef CONDITIONAL
-            if (!srcap)
-                continue;
-#endif
-            dst_r[x] = (src_r[x] * srcap + dst_r[x] * (255 - srcap) + 127) / 255;
+        if (bytes == 2) {
+            BLEND_CONST_ALPHA(uint16_t)
+        } else if (bytes == 1) {
+            BLEND_CONST_ALPHA(uint8_t)
         }
     }
 }
 
-static void blend_src8_alpha(void *dst, int dst_stride, void *src,
-                             int src_stride, uint8_t *srca, int srca_stride,
-                             int w, int h)
-{
-    for (int y = 0; y < h; y++) {
-        uint8_t *dst_r = (uint8_t *)dst + dst_stride * y;
-        uint8_t *src_r = (uint8_t *)src + src_stride * y;
-        uint8_t *srca_r = srca + srca_stride * y;
-        for (int x = 0; x < w; x++) {
-            uint16_t srcap = srca_r[x];
-#ifdef CONDITIONAL
-            if (!srcap)
-                continue;
-#endif
-#ifdef ACCURATE
-            dst_r[x] = (src_r[x] * srcap + dst_r[x] * (255 - srcap) + 127) / 255;
-#else
-            dst_r[x] = (src_r[x] * srcap + dst_r[x] * (255 - srcap) + 255) >> 8;
-#endif
-        }
+#define BLEND_SRC_ALPHA(TYPE)                                                   \
+    TYPE *dst_r = dst_rp, *src_r = src_rp;                                      \
+    for (int x = 0; x < w; x++) {                                               \
+        uint32_t srcap = srca_r[x];                                             \
+        if (CONDITIONAL && !srcap) continue;                                    \
+        dst_r[x] = (src_r[x] * srcap + dst_r[x] * (255 - srcap) + 127) / 255;   \
     }
-}
 
+// dst = src * srca + dst * (1 - srca)
 static void blend_src_alpha(void *dst, int dst_stride, void *src,
                             int src_stride, uint8_t *srca, int srca_stride,
                             int w, int h, int bytes)
 {
-    if (bytes == 2) {
-        blend_src16_alpha(dst, dst_stride, src, src_stride, srca, srca_stride,
-                          w, h);
-    } else if (bytes == 1) {
-        blend_src8_alpha(dst, dst_stride, src, src_stride, srca, srca_stride,
-                         w, h);
+    for (int y = 0; y < h; y++) {
+        void *dst_rp = (uint8_t *)dst + dst_stride * y;
+        void *src_rp = (uint8_t *)src + src_stride * y;
+        uint8_t *srca_r = srca + srca_stride * y;
+        if (bytes == 2) {
+            BLEND_SRC_ALPHA(uint16_t)
+        } else if (bytes == 1) {
+            BLEND_SRC_ALPHA(uint8_t)
+        }
+    }
+}
+
+#define BLEND_SRC_DST_MUL(TYPE, MAX)                                            \
+    TYPE *dst_r = dst_rp;                                                       \
+    for (int x = 0; x < w; x++) {                                               \
+        uint16_t srcp = src_r[x] * srcmul; /* now 0..65025 */                   \
+        dst_r[x] = (srcp * (MAX) + dst_r[x] * (65025 - srcp) + 32512) / 65025;  \
+    }
+
+// dst = src * srcmul + dst * (1 - src * srcmul)
+static void blend_src_dst_mul(void *dst, int dst_stride,
+                              uint8_t *src, int src_stride, uint8_t srcmul,
+                              int w, int h, int dst_bytes)
+{
+    for (int y = 0; y < h; y++) {
+        void *dst_rp = (uint8_t *)dst + dst_stride * y;
+        uint8_t *src_r = (uint8_t *)src + src_stride * y;
+        if (dst_bytes == 2) {
+            BLEND_SRC_DST_MUL(uint16_t, 65025)
+        } else if (dst_bytes == 1) {
+            BLEND_SRC_DST_MUL(uint8_t, 255)
+        }
     }
 }
 
@@ -235,8 +193,7 @@ static void scale_sb_rgba(struct sub_bitmap *sb, struct mp_image *dst_format,
     mp_image_swscale(sbisrc2, &sbisrc, SWS_BILINEAR);
     unpremultiply_and_split_BGR32(sbisrc2, sba);
 
-    sbi->params.colorspace = dst_format->params.colorspace;
-    sbi->params.colorlevels = dst_format->params.colorlevels;
+    sbi->params.color = dst_format->params.color;
     mp_image_swscale(sbi, sbisrc2, SWS_BILINEAR);
 
     talloc_free(sbisrc2);
@@ -279,6 +236,10 @@ static void draw_rgba(struct mp_draw_sub_cache *cache, struct mp_rect bb,
             blend_src_alpha(dst.planes[p], dst.stride[p], src, sbi->stride[p],
                             alpha_p, sba->stride[0], dst.w, dst.h, bytes);
         }
+        if (temp->num_planes >= 4) {
+            blend_src_dst_mul(dst.planes[3], dst.stride[3], alpha_p,
+                              sba->stride[0], 255, dst.w, dst.h, bytes);
+        }
 
         part->imgs[i].i = talloc_steal(part, sbi);
         part->imgs[i].a = talloc_steal(part, sba);
@@ -289,16 +250,16 @@ static void draw_ass(struct mp_draw_sub_cache *cache, struct mp_rect bb,
                      struct mp_image *temp, int bits, struct sub_bitmaps *sbs)
 {
     struct mp_csp_params cspar = MP_CSP_PARAMS_DEFAULTS;
-    cspar.colorspace.format = temp->params.colorspace;
-    cspar.colorspace.levels_in = temp->params.colorlevels;
-    cspar.colorspace.levels_out = MP_CSP_LEVELS_PC; // RGB (libass.color)
-    cspar.int_bits_in = bits;
-    cspar.int_bits_out = 8;
+    mp_csp_set_image_params(&cspar, &temp->params);
+    cspar.levels_out = MP_CSP_LEVELS_PC; // RGB (libass.color)
+    cspar.input_bits = bits;
+    cspar.texture_bits = (bits + 7) / 8 * 8;
 
-    float yuv2rgb[3][4], rgb2yuv[3][4];
-    if (temp->flags & MP_IMGFLAG_YUV) {
-        mp_get_yuv2rgb_coeffs(&cspar, yuv2rgb);
-        mp_invert_yuv2rgb(rgb2yuv, yuv2rgb);
+    struct mp_cmat yuv2rgb, rgb2yuv;
+    bool need_conv = temp->fmt.flags & MP_IMGFLAG_YUV;
+    if (need_conv) {
+        mp_get_csp_matrix(&cspar, &yuv2rgb);
+        mp_invert_cmat(&rgb2yuv, &yuv2rgb);
     }
 
     for (int i = 0; i < sbs->num_parts; ++i) {
@@ -313,11 +274,11 @@ static void draw_ass(struct mp_draw_sub_cache *cache, struct mp_rect bb,
         int g = (sb->libass.color >> 16) & 0xFF;
         int b = (sb->libass.color >> 8) & 0xFF;
         int a = 255 - (sb->libass.color & 0xFF);
-        int color_yuv[3] = {r, g, b};
-        if (dst.flags & MP_IMGFLAG_YUV) {
-            mp_map_int_color(rgb2yuv, bits, color_yuv);
+        int color_yuv[3];
+        if (need_conv) {
+            int rgb[3] = {r, g, b};
+            mp_map_fixp_color(&rgb2yuv, 8, rgb, cspar.texture_bits, color_yuv);
         } else {
-            assert(dst.imgfmt == IMGFMT_GBRP);
             color_yuv[0] = g;
             color_yuv[1] = b;
             color_yuv[2] = r;
@@ -329,19 +290,23 @@ static void draw_ass(struct mp_draw_sub_cache *cache, struct mp_rect bb,
             blend_const_alpha(dst.planes[p], dst.stride[p], color_yuv[p],
                               alpha_p, sb->stride, a, dst.w, dst.h, bytes);
         }
+        if (temp->num_planes >= 4) {
+            blend_src_dst_mul(dst.planes[3], dst.stride[3], alpha_p,
+                              sb->stride, a, dst.w, dst.h, bytes);
+        }
     }
 }
 
 static void get_swscale_alignment(const struct mp_image *img, int *out_xstep,
                                   int *out_ystep)
 {
-    int sx = (1 << img->chroma_x_shift);
-    int sy = (1 << img->chroma_y_shift);
+    int sx = (1 << img->fmt.chroma_xs);
+    int sy = (1 << img->fmt.chroma_ys);
 
     for (int p = 0; p < img->num_planes; ++p) {
         int bits = img->fmt.bpp[p];
         // the * 2 fixes problems with writing past the destination width
-        while (((sx >> img->chroma_x_shift) * bits) % (SWS_MIN_BYTE_ALIGN * 8 * 2))
+        while (((sx >> img->fmt.chroma_xs) * bits) % (SWS_MIN_BYTE_ALIGN * 8 * 2))
             sx *= 2;
     }
 
@@ -374,21 +339,20 @@ static bool align_bbox_for_swscale(struct mp_image *img, struct mp_rect *rc)
 static void get_closest_y444_format(int imgfmt, int *out_format, int *out_bits)
 {
     struct mp_imgfmt_desc desc = mp_imgfmt_get_desc(imgfmt);
+    int planes = desc.flags & MP_IMGFLAG_ALPHA ? 4 : 3;
+    int bits = desc.component_bits > 8 ? 16 : 8;
     if (desc.flags & MP_IMGFLAG_RGB) {
-        *out_format = IMGFMT_GBRP;
-        *out_bits = 8;
-        return;
+        *out_format = mp_imgfmt_find(0, 0, planes, bits, MP_IMGFLAG_RGB_P);
+        if (!mp_sws_supported_format(*out_format))
+            *out_format = mp_imgfmt_find(0, 0, planes, 8, MP_IMGFLAG_RGB_P);
     } else if (desc.flags & MP_IMGFLAG_YUV_P) {
-        *out_format = mp_imgfmt_find_yuv_planar(0, 0, desc.num_planes,
-                                                desc.plane_bits);
-        if (*out_format && mp_sws_supported_format(*out_format)) {
-            *out_bits = mp_imgfmt_get_desc(*out_format).plane_bits;
-            return;
-        }
+        *out_format = mp_imgfmt_find(0, 0, planes, bits, MP_IMGFLAG_YUV_P);
+    } else {
+        *out_format = 0;
     }
-    // fallback
-    *out_format = IMGFMT_444P;
-    *out_bits = 8;
+    if (!mp_sws_supported_format(*out_format))
+        *out_format = IMGFMT_444P; // generic fallback
+    *out_bits = mp_imgfmt_get_desc(*out_format).component_bits;
 }
 
 static struct part *get_cache(struct mp_draw_sub_cache *cache,
@@ -400,10 +364,10 @@ static struct part *get_cache(struct mp_draw_sub_cache *cache,
     if (use_cache) {
         part = cache->parts[sbs->render_index];
         if (part) {
-            if (part->bitmap_pos_id != sbs->bitmap_pos_id
+            if (part->change_id != sbs->change_id
                 || part->imgfmt != format->imgfmt
-                || part->colorspace != format->params.colorspace
-                || part->levels != format->params.colorlevels)
+                || part->colorspace != format->params.color.space
+                || part->levels != format->params.color.levels)
             {
                 talloc_free(part);
                 part = NULL;
@@ -412,11 +376,11 @@ static struct part *get_cache(struct mp_draw_sub_cache *cache,
         if (!part) {
             part = talloc(cache, struct part);
             *part = (struct part) {
-                .bitmap_pos_id = sbs->bitmap_pos_id,
+                .change_id = sbs->change_id,
                 .num_imgs = sbs->num_parts,
                 .imgfmt = format->imgfmt,
-                .levels = format->params.colorlevels,
-                .colorspace = format->params.colorspace,
+                .levels = format->params.color.levels,
+                .colorspace = format->params.color.space,
             };
             part->imgs = talloc_zero_array(part, struct sub_cache,
                                            part->num_imgs);
@@ -471,10 +435,8 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
 
     // The temp image is always YUV, but src not necessarily.
     // Reduce amount of conversions in YUV case (upsampling/shifting only)
-    if (src->flags & MP_IMGFLAG_YUV) {
-        temp->params.colorspace = src->params.colorspace;
-        temp->params.colorlevels = src->params.colorlevels;
-    }
+    if (src->fmt.flags & MP_IMGFLAG_YUV)
+        temp->params.color = src->params.color;
 
     if (src->imgfmt == IMGFMT_420P) {
         assert(imgfmt == IMGFMT_444P);
@@ -482,9 +444,9 @@ static struct mp_image *chroma_up(struct mp_draw_sub_cache *cache, int imgfmt,
         // The whole point is not having swscale copy the Y plane
         struct mp_image t_dst = *temp;
         mp_image_setfmt(&t_dst, IMGFMT_Y8);
-        mp_image_set_size(&t_dst, temp->chroma_width, temp->chroma_height);
+        mp_image_set_size(&t_dst, temp->w, temp->h);
         struct mp_image t_src = t_dst;
-        mp_image_set_size(&t_src, src->chroma_width, src->chroma_height);
+        mp_image_set_size(&t_src, src->w >> 1, src->h >> 1);
         for (int c = 0; c < 2; c++) {
             t_dst.planes[0] = temp->planes[1 + c];
             t_dst.stride[0] = temp->stride[1 + c];
@@ -512,10 +474,9 @@ static void chroma_down(struct mp_image *old_src, struct mp_image *temp)
             assert(temp->planes[0] == old_src->planes[0]);
             struct mp_image t_dst = *temp;
             mp_image_setfmt(&t_dst, IMGFMT_Y8);
-            mp_image_set_size(&t_dst, old_src->chroma_width,
-                              old_src->chroma_height);
+            mp_image_set_size(&t_dst, old_src->w >> 1, old_src->h >> 1);
             struct mp_image t_src = t_dst;
-            mp_image_set_size(&t_src, temp->chroma_width, temp->chroma_height);
+            mp_image_set_size(&t_src, temp->w, temp->h);
             for (int c = 0; c < 2; c++) {
                 t_dst.planes[0] = old_src->planes[1 + c];
                 t_dst.stride[0] = old_src->stride[1 + c];

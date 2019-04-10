@@ -1,22 +1,22 @@
 /*
  * video output driver for SDL 2.0+
+ *
  * Copyright (C) 2012 Rudolf Polzer <divVerent@xonotic.org>
  *
  * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -41,7 +41,6 @@
 #include "sub/osd.h"
 
 #include "video/mp_image.h"
-#include "video/vfcap.h"
 
 #include "win_state.h"
 #include "config.h"
@@ -55,42 +54,30 @@ struct formatmap_entry {
 const struct formatmap_entry formats[] = {
     {SDL_PIXELFORMAT_YV12, IMGFMT_420P, 0},
     {SDL_PIXELFORMAT_IYUV, IMGFMT_420P, 0},
-    {SDL_PIXELFORMAT_YUY2, IMGFMT_YUYV, 0},
     {SDL_PIXELFORMAT_UYVY, IMGFMT_UYVY, 0},
     //{SDL_PIXELFORMAT_YVYU, IMGFMT_YVYU, 0},
 #if BYTE_ORDER == BIG_ENDIAN
-    {SDL_PIXELFORMAT_RGBX8888, IMGFMT_RGBA, 0}, // has no alpha -> bad for OSD
-    {SDL_PIXELFORMAT_BGRX8888, IMGFMT_BGRA, 0}, // has no alpha -> bad for OSD
+    {SDL_PIXELFORMAT_RGB888, IMGFMT_0RGB, 0}, // RGB888 means XRGB8888
+    {SDL_PIXELFORMAT_RGBX8888, IMGFMT_RGB0, 0}, // has no alpha -> bad for OSD
+    {SDL_PIXELFORMAT_BGR888, IMGFMT_0BGR, 0}, // BGR888 means XBGR8888
+    {SDL_PIXELFORMAT_BGRX8888, IMGFMT_BGR0, 0}, // has no alpha -> bad for OSD
     {SDL_PIXELFORMAT_ARGB8888, IMGFMT_ARGB, 1}, // matches SUBBITMAP_RGBA
     {SDL_PIXELFORMAT_RGBA8888, IMGFMT_RGBA, 1},
     {SDL_PIXELFORMAT_ABGR8888, IMGFMT_ABGR, 1},
     {SDL_PIXELFORMAT_BGRA8888, IMGFMT_BGRA, 1},
-    {SDL_PIXELFORMAT_RGB24, IMGFMT_RGB24, 0},
-    {SDL_PIXELFORMAT_BGR24, IMGFMT_BGR24, 0},
-    {SDL_PIXELFORMAT_RGB888, IMGFMT_RGB24, 0},
-    {SDL_PIXELFORMAT_BGR888, IMGFMT_BGR24, 0},
-    {SDL_PIXELFORMAT_RGB565, IMGFMT_BGR565, 0},
-    {SDL_PIXELFORMAT_BGR565, IMGFMT_RGB565, 0},
-    {SDL_PIXELFORMAT_RGB555, IMGFMT_BGR555, 0},
-    {SDL_PIXELFORMAT_BGR555, IMGFMT_RGB555, 0},
-    {SDL_PIXELFORMAT_RGB444, IMGFMT_BGR444, 0}
 #else
-    {SDL_PIXELFORMAT_RGBX8888, IMGFMT_ABGR, 0}, // has no alpha -> bad for OSD
-    {SDL_PIXELFORMAT_BGRX8888, IMGFMT_ARGB, 0}, // has no alpha -> bad for OSD
+    {SDL_PIXELFORMAT_RGB888, IMGFMT_BGR0, 0}, // RGB888 means XRGB8888
+    {SDL_PIXELFORMAT_RGBX8888, IMGFMT_0BGR, 0}, // has no alpha -> bad for OSD
+    {SDL_PIXELFORMAT_BGR888, IMGFMT_RGB0, 0}, // BGR888 means XBGR8888
+    {SDL_PIXELFORMAT_BGRX8888, IMGFMT_0RGB, 0}, // has no alpha -> bad for OSD
     {SDL_PIXELFORMAT_ARGB8888, IMGFMT_BGRA, 1}, // matches SUBBITMAP_RGBA
     {SDL_PIXELFORMAT_RGBA8888, IMGFMT_ABGR, 1},
     {SDL_PIXELFORMAT_ABGR8888, IMGFMT_RGBA, 1},
     {SDL_PIXELFORMAT_BGRA8888, IMGFMT_ARGB, 1},
+#endif
     {SDL_PIXELFORMAT_RGB24, IMGFMT_RGB24, 0},
     {SDL_PIXELFORMAT_BGR24, IMGFMT_BGR24, 0},
-    {SDL_PIXELFORMAT_RGB888, IMGFMT_BGR24, 0},
-    {SDL_PIXELFORMAT_BGR888, IMGFMT_RGB24, 0},
     {SDL_PIXELFORMAT_RGB565, IMGFMT_RGB565, 0},
-    {SDL_PIXELFORMAT_BGR565, IMGFMT_RGB565, 0},
-    {SDL_PIXELFORMAT_RGB555, IMGFMT_RGB555, 0},
-    {SDL_PIXELFORMAT_BGR555, IMGFMT_BGR555, 0},
-    {SDL_PIXELFORMAT_RGB444, IMGFMT_RGB444, 0}
-#endif
 };
 
 struct keymap_entry {
@@ -173,14 +160,12 @@ struct priv {
     SDL_Texture *tex;
     int tex_swapped;
     struct mp_image_params params;
-    mp_image_t *ssmpi;
     struct mp_rect src_rect;
     struct mp_rect dst_rect;
     struct mp_osd_res osd_res;
     struct formatmap_entry osd_format;
     struct osd_bitmap_surface {
-        int bitmap_id;
-        int bitmap_pos_id;
+        int change_id;
         struct osd_target {
             SDL_Rect source;
             SDL_Rect dest;
@@ -193,7 +178,9 @@ struct priv {
     double osd_pts;
     int mouse_hidden;
     int brightness, contrast;
+    char *window_title;
     Uint32 wakeup_event;
+    bool screensaver_enabled;
 
     // options
     int allow_sw;
@@ -356,6 +343,9 @@ static bool try_create_renderer(struct vo *vo, int i, const char *driver,
         vc->renderer_index = i;
     }
 
+    if (vc->window_title)
+        SDL_SetWindowTitle(vc->window, vc->window_title);
+
     return true;
 }
 
@@ -413,10 +403,22 @@ static void check_resize(struct vo *vo)
         resize(vo, w, h);
 }
 
+static inline void set_screensaver(bool enabled)
+{
+    if (!!enabled == !!SDL_IsScreenSaverEnabled())
+        return;
+
+    if (enabled)
+        SDL_EnableScreenSaver();
+    else
+        SDL_DisableScreenSaver();
+}
+
 static void set_fullscreen(struct vo *vo)
 {
     struct priv *vc = vo->priv;
     int fs = vo->opts->fullscreen;
+    SDL_bool prev_screensaver_state = SDL_IsScreenSaverEnabled();
 
     Uint32 fs_flag;
     if (vc->switch_mode)
@@ -439,7 +441,7 @@ static void set_fullscreen(struct vo *vo)
     }
 
     // toggling fullscreen might recreate the window, so better guard for this
-    SDL_DisableScreenSaver();
+    set_screensaver(prev_screensaver_state);
 
     force_resize(vo);
 }
@@ -456,7 +458,7 @@ static void update_screeninfo(struct vo *vo, struct mp_rect *screenrc)
     *screenrc = (struct mp_rect){0, 0, mode.w, mode.h};
 }
 
-static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
+static int reconfig(struct vo *vo, struct mp_image_params *params)
 {
     struct priv *vc = vo->priv;
 
@@ -518,11 +520,8 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
 
     resize(vo, win_w, win_h);
 
-    SDL_DisableScreenSaver();
-
+    set_screensaver(vc->screensaver_enabled);
     set_fullscreen(vo);
-
-    SDL_SetWindowTitle(vc->window, vo_get_window_title(vo));
 
     SDL_ShowWindow(vc->window);
 
@@ -545,7 +544,7 @@ static void wakeup(struct vo *vo)
     SDL_PushEvent(&event);
 }
 
-static int wait_events(struct vo *vo, int64_t until_time_us)
+static void wait_events(struct vo *vo, int64_t until_time_us)
 {
     int64_t wait_us = until_time_us - mp_time_us();
     int timeout_ms = MPCLAMP((wait_us + 500) / 1000, 0, 10000);
@@ -561,6 +560,7 @@ static int wait_events(struct vo *vo, int64_t until_time_us)
                 break;
             case SDL_WINDOWEVENT_SIZE_CHANGED:
                 check_resize(vo);
+                vo_event(vo, VO_EVENT_RESIZE);
                 break;
             }
             break;
@@ -576,7 +576,7 @@ static int wait_events(struct vo *vo, int64_t until_time_us)
             if (sdl_mod & (KMOD_LCTRL | KMOD_RCTRL))
                 mpv_mod |= MP_KEY_MODIFIER_CTRL;
             if ((sdl_mod & KMOD_LALT) ||
-                (sdl_mod & KMOD_RALT) && !mp_input_use_alt_gr(vo->input_ctx))
+                ((sdl_mod & KMOD_RALT) && !mp_input_use_alt_gr(vo->input_ctx)))
                 mpv_mod |= MP_KEY_MODIFIER_ALT;
             if (sdl_mod & (KMOD_LGUI | KMOD_RGUI))
                 mpv_mod |= MP_KEY_MODIFIER_META;
@@ -620,25 +620,22 @@ static int wait_events(struct vo *vo, int64_t until_time_us)
             break;
         case SDL_MOUSEBUTTONDOWN:
             mp_input_put_key(vo->input_ctx,
-                (MP_MOUSE_BTN0 + ev.button.button - 1) | MP_KEY_STATE_DOWN);
+                (MP_MBTN_BASE + ev.button.button - 1) | MP_KEY_STATE_DOWN);
             break;
         case SDL_MOUSEBUTTONUP:
             mp_input_put_key(vo->input_ctx,
-                (MP_MOUSE_BTN0 + ev.button.button - 1) | MP_KEY_STATE_UP);
+                (MP_MBTN_BASE + ev.button.button - 1) | MP_KEY_STATE_UP);
             break;
         case SDL_MOUSEWHEEL:
             break;
         }
     }
-
-    return 0;
 }
 
 static void uninit(struct vo *vo)
 {
     struct priv *vc = vo->priv;
     destroy_renderer(vo);
-    talloc_free(vc->ssmpi);
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
     talloc_free(vc);
 }
@@ -704,7 +701,7 @@ static void generate_osd_part(struct vo *vo, struct sub_bitmaps *imgs)
     if (imgs->format == SUBBITMAP_EMPTY || imgs->num_parts == 0)
         return;
 
-    if (imgs->bitmap_pos_id == sfc->bitmap_pos_id)
+    if (imgs->change_id == sfc->change_id)
         return;
 
     if (imgs->num_parts > sfc->targets_size) {
@@ -727,49 +724,46 @@ static void generate_osd_part(struct vo *vo, struct sub_bitmaps *imgs)
             bmp->x, bmp->y, bmp->dw, bmp->dh
         };
 
-        if (imgs->bitmap_id != sfc->bitmap_id || !target->tex) {
-            // tex: alpha blended texture
-            if (target->tex) {
-                SDL_DestroyTexture(target->tex);
-                target->tex = NULL;
-            }
-            if (!target->tex)
-                target->tex = SDL_CreateTexture(vc->renderer,
-                        vc->osd_format.sdl, SDL_TEXTUREACCESS_STREAMING,
-                        bmp->w, bmp->h);
-            if (!target->tex) {
-                MP_ERR(vo, "Could not create texture\n");
-            }
-            if (target->tex) {
-                SDL_SetTextureBlendMode(target->tex,
-                                        SDL_BLENDMODE_BLEND);
-                SDL_SetTextureColorMod(target->tex, 0, 0, 0);
-                subbitmap_to_texture(vo, target->tex, bmp, 0); // RGBA -> 000A
-            }
+        // tex: alpha blended texture
+        if (target->tex) {
+            SDL_DestroyTexture(target->tex);
+            target->tex = NULL;
+        }
+        if (!target->tex)
+            target->tex = SDL_CreateTexture(vc->renderer,
+                    vc->osd_format.sdl, SDL_TEXTUREACCESS_STREAMING,
+                    bmp->w, bmp->h);
+        if (!target->tex) {
+            MP_ERR(vo, "Could not create texture\n");
+        }
+        if (target->tex) {
+            SDL_SetTextureBlendMode(target->tex,
+                                    SDL_BLENDMODE_BLEND);
+            SDL_SetTextureColorMod(target->tex, 0, 0, 0);
+            subbitmap_to_texture(vo, target->tex, bmp, 0); // RGBA -> 000A
+        }
 
-            // tex2: added texture
-            if (target->tex2) {
-                SDL_DestroyTexture(target->tex2);
-                target->tex2 = NULL;
-            }
-            if (!target->tex2)
-                target->tex2 = SDL_CreateTexture(vc->renderer,
-                        vc->osd_format.sdl, SDL_TEXTUREACCESS_STREAMING,
-                        bmp->w, bmp->h);
-            if (!target->tex2) {
-                MP_ERR(vo, "Could not create texture\n");
-            }
-            if (target->tex2) {
-                SDL_SetTextureBlendMode(target->tex2,
-                                        SDL_BLENDMODE_ADD);
-                subbitmap_to_texture(vo, target->tex2, bmp,
-                                     0xFF000000); // RGBA -> RGB1
-            }
+        // tex2: added texture
+        if (target->tex2) {
+            SDL_DestroyTexture(target->tex2);
+            target->tex2 = NULL;
+        }
+        if (!target->tex2)
+            target->tex2 = SDL_CreateTexture(vc->renderer,
+                    vc->osd_format.sdl, SDL_TEXTUREACCESS_STREAMING,
+                    bmp->w, bmp->h);
+        if (!target->tex2) {
+            MP_ERR(vo, "Could not create texture\n");
+        }
+        if (target->tex2) {
+            SDL_SetTextureBlendMode(target->tex2,
+                                    SDL_BLENDMODE_ADD);
+            subbitmap_to_texture(vo, target->tex2, bmp,
+                                    0xFF000000); // RGBA -> RGB1
         }
     }
 
-    sfc->bitmap_id = imgs->bitmap_id;
-    sfc->bitmap_pos_id = imgs->bitmap_pos_id;
+    sfc->change_id = imgs->change_id;
 }
 
 static void draw_osd_part(struct vo *vo, int index)
@@ -846,16 +840,15 @@ static int preinit(struct vo *vo)
     return 0;
 }
 
-static int query_format(struct vo *vo, uint32_t format)
+static int query_format(struct vo *vo, int format)
 {
     struct priv *vc = vo->priv;
     int i, j;
-    int cap = VFCAP_CSP_SUPPORTED;
     for (i = 0; i < vc->renderer_info.num_texture_formats; ++i)
         for (j = 0; j < sizeof(formats) / sizeof(formats[0]); ++j)
             if (vc->renderer_info.texture_formats[i] == formats[j].sdl)
                 if (format == formats[j].mpv)
-                    return cap;
+                    return 1;
     return 0;
 }
 
@@ -863,44 +856,11 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
 {
     struct priv *vc = vo->priv;
 
-    // decode brightness/contrast
-    int color_add = 0;
-    int color_mod = 255;
-    int brightness = vc->brightness;
-    int contrast = vc->contrast;
-
-    // only in this range it is possible to do brightness/contrast control
-    // properly, using just additive render operations and color modding
-    // (SDL2 provides no subtractive rendering, sorry)
-    if (2 * brightness < contrast) {
-        //brightness = (brightness + 2 * contrast) / 5; // closest point
-        brightness = (brightness + contrast) / 3; // equal adjustment
-        contrast = 2 * brightness;
-    }
-
-    // convert to values SDL2 likes
-    color_mod = ((contrast + 100) * 255 + 50) / 100;
-    color_add = ((2 * brightness - contrast) * 255 + 100) / 200;
-
-    // clamp
-    if (color_mod < 0)
-        color_mod = 0;
-    if (color_mod > 255)
-        color_mod = 255;
-    // color_add can't be < 0
-    if (color_add > 255)
-        color_add = 255;
-
     // typically this runs in parallel with the following mp_image_copy call
-    SDL_SetRenderDrawColor(vc->renderer, color_add, color_add, color_add, 255);
+    SDL_SetRenderDrawColor(vc->renderer, 0, 0, 0, 255);
     SDL_RenderClear(vc->renderer);
 
-    // use additive blending for the video texture only if the clear color is
-    // not black (faster especially for the software renderer)
-    if (color_add)
-        SDL_SetTextureBlendMode(vc->tex, SDL_BLENDMODE_ADD);
-    else
-        SDL_SetTextureBlendMode(vc->tex, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(vc->tex, SDL_BLENDMODE_NONE);
 
     if (mpi) {
         vc->osd_pts = mpi->pts;
@@ -915,8 +875,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
 
         SDL_UnlockTexture(vc->tex);
 
-        talloc_free(vc->ssmpi);
-        vc->ssmpi = mpi;
+        talloc_free(mpi);
     }
 
     SDL_Rect src, dst;
@@ -929,23 +888,9 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     dst.w = vc->dst_rect.x1 - vc->dst_rect.x0;
     dst.h = vc->dst_rect.y1 - vc->dst_rect.y0;
 
-    // typically this runs in parallel with the following mp_image_copy call
-    if (color_mod > 255) {
-        SDL_SetTextureColorMod(vc->tex, color_mod / 2, color_mod / 2, color_mod / 2);
-        SDL_RenderCopy(vc->renderer, vc->tex, &src, &dst);
-        SDL_RenderCopy(vc->renderer, vc->tex, &src, &dst);
-    } else {
-        SDL_SetTextureColorMod(vc->tex, color_mod, color_mod, color_mod);
-        SDL_RenderCopy(vc->renderer, vc->tex, &src, &dst);
-    }
+    SDL_RenderCopy(vc->renderer, vc->tex, &src, &dst);
 
     draw_osd(vo);
-}
-
-static struct mp_image *get_screenshot(struct vo *vo)
-{
-    struct priv *vc = vo->priv;
-    return vc->ssmpi ? mp_image_new_ref(vc->ssmpi) : NULL;
 }
 
 static struct mp_image *get_window_screenshot(struct vo *vo)
@@ -964,36 +909,6 @@ static struct mp_image *get_window_screenshot(struct vo *vo)
     return image;
 }
 
-static int set_eq(struct vo *vo, const char *name, int value)
-{
-    struct priv *vc = vo->priv;
-
-    if (!strcmp(name, "brightness"))
-        vc->brightness = value;
-    else if (!strcmp(name, "contrast"))
-        vc->contrast = value;
-    else
-        return VO_NOTIMPL;
-
-    vo->want_redraw = true;
-
-    return VO_TRUE;
-}
-
-static int get_eq(struct vo *vo, const char *name, int *value)
-{
-    struct priv *vc = vo->priv;
-
-    if (!strcmp(name, "brightness"))
-        *value = vc->brightness;
-    else if (!strcmp(name, "contrast"))
-        *value = vc->contrast;
-    else
-        return VO_NOTIMPL;
-
-    return VO_TRUE;
-}
-
 static int control(struct vo *vo, uint32_t request, void *data)
 {
     struct priv *vc = vo->priv;
@@ -1005,33 +920,28 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_REDRAW_FRAME:
         draw_image(vo, NULL);
         return 1;
-    case VOCTRL_GET_PANSCAN:
-        return VO_TRUE;
     case VOCTRL_SET_PANSCAN:
         force_resize(vo);
         return VO_TRUE;
-    case VOCTRL_SET_EQUALIZER: {
-        struct voctrl_set_equalizer_args *args = data;
-        return set_eq(vo, args->name, args->value);
-    }
-    case VOCTRL_GET_EQUALIZER: {
-        struct voctrl_get_equalizer_args *args = data;
-        return get_eq(vo, args->name, args->valueptr);
-    }
-    case VOCTRL_SCREENSHOT: {
-        struct voctrl_screenshot_args *args = data;
-        if (args->full_window)
-            args->out_image = get_window_screenshot(vo);
-        else
-            args->out_image = get_screenshot(vo);
+    case VOCTRL_SCREENSHOT_WIN:
+        *(struct mp_image **)data = get_window_screenshot(vo);
         return true;
-    }
     case VOCTRL_SET_CURSOR_VISIBILITY:
         SDL_ShowCursor(*(bool *)data);
         return true;
+    case VOCTRL_KILL_SCREENSAVER:
+        vc->screensaver_enabled = false;
+        set_screensaver(vc->screensaver_enabled);
+        return VO_TRUE;
+    case VOCTRL_RESTORE_SCREENSAVER:
+        vc->screensaver_enabled = true;
+        set_screensaver(vc->screensaver_enabled);
+        return VO_TRUE;
     case VOCTRL_UPDATE_WINDOW_TITLE:
-        if (vc->window)
-            SDL_SetWindowTitle(vc->window, vo_get_window_title(vo));
+        talloc_free(vc->window_title);
+        vc->window_title = talloc_strdup(vc, (char *)data);
+        if (vc->window && vc->window_title)
+            SDL_SetWindowTitle(vc->window, vc->window_title);
         return true;
     }
     return VO_NOTIMPL;
@@ -1046,6 +956,7 @@ const struct vo_driver video_out_sdl = {
     .priv_defaults = &(const struct priv) {
         .renderer_index = -1,
         .vsync = 1,
+        .screensaver_enabled = false,
     },
     .options = (const struct m_option []){
         OPT_FLAG("sw", allow_sw, 0),
@@ -1062,4 +973,5 @@ const struct vo_driver video_out_sdl = {
     .flip_page = flip_page,
     .wait_events = wait_events,
     .wakeup = wakeup,
+    .options_prefix = "sdl",
 };

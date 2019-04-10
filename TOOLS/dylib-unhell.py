@@ -19,12 +19,13 @@ def is_user_lib(objfile, libname):
            not "libSystem." in libname and \
            not "libc." in libname and \
            not "libgcc." in libname and \
+           not os.path.basename(libname) == 'Python' and \
            not os.path.basename(objfile) in libname
 
 def otool(objfile):
     command = "otool -L %s | grep -e '\t' | awk '{ print $1 }'" % objfile
-    output  = subprocess.check_output(command, shell = True)
-    return filter(partial(is_user_lib, objfile), output.split())
+    output  = subprocess.check_output(command, shell = True, universal_newlines=True)
+    return set(filter(partial(is_user_lib, objfile), output.split()))
 
 def install_name_tool_change(old, new, objfile):
     subprocess.call(["install_name_tool", "-change", old, new, objfile])
@@ -34,7 +35,7 @@ def install_name_tool_id(name, objfile):
 
 def libraries(objfile, result = dict()):
     libs_list       = otool(objfile)
-    result[objfile] = set(libs_list)
+    result[objfile] = libs_list
 
     for lib in libs_list:
         if lib not in result:
@@ -79,15 +80,17 @@ def process_libraries(libs_dict, binary, processed = []):
             if p in libs_dict[src]:
                 install_name_tool_change(p, lib_name(p), dst)
 
-    process_libraries(libs_dict, binary, ls)
+    return ls
 
 def main():
     binary = os.path.abspath(sys.argv[1])
     if not os.path.exists(lib_path(binary)):
         os.makedirs(lib_path(binary))
     libs = libraries(binary)
-    print(libs)
-    process_libraries(libs, binary)
+
+    libs_processed = process_libraries(libs, binary)
+    while libs_processed is not None:
+        libs_processed = process_libraries(libs, binary, libs_processed)
 
 if __name__ == "__main__":
     main()

@@ -3,27 +3,27 @@
  * Copyright (C) 2006 Lennart Poettering
  * Copyright (C) 2007 Reimar Doeffinger
  *
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
 #include <pthread.h>
 
 #include <pulse/pulseaudio.h>
@@ -35,10 +35,8 @@
 #include "ao.h"
 #include "internal.h"
 
-#define PULSE_CLIENT_NAME "mpv"
-
-#define VOL_PA2MP(v) ((v) * 100 / PA_VOLUME_NORM)
-#define VOL_MP2PA(v) ((v) * PA_VOLUME_NORM / 100)
+#define VOL_PA2MP(v) ((v) * 100.0 / PA_VOLUME_NORM)
+#define VOL_MP2PA(v) lrint((v) * PA_VOLUME_NORM / 100)
 
 struct priv {
     // PulseAudio playback stream object
@@ -61,7 +59,6 @@ struct priv {
     int wakeup_status;
 
     char *cfg_host;
-    char *cfg_sink;
     int cfg_buffer;
     int cfg_latency_hacks;
 };
@@ -83,13 +80,38 @@ static void context_state_cb(pa_context *c, void *userdata)
     }
 }
 
+static void subscribe_cb(pa_context *c, pa_subscription_event_type_t t,
+                         uint32_t idx, void *userdata)
+{
+    struct ao *ao = userdata;
+    int type = t & PA_SUBSCRIPTION_MASK_SINK;
+    int fac = t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK;
+    if ((type == PA_SUBSCRIPTION_EVENT_NEW || type == PA_SUBSCRIPTION_EVENT_REMOVE)
+        && fac == PA_SUBSCRIPTION_EVENT_SINK)
+    {
+        ao_hotplug_event(ao);
+    }
+}
+
+static void context_success_cb(pa_context *c, int success, void *userdata)
+{
+    struct ao *ao = userdata;
+    struct priv *priv = ao->priv;
+    priv->retval = success;
+    pa_threaded_mainloop_signal(priv->mainloop, 0);
+}
+
 static void stream_state_cb(pa_stream *s, void *userdata)
 {
     struct ao *ao = userdata;
     struct priv *priv = ao->priv;
     switch (pa_stream_get_state(s)) {
-    case PA_STREAM_READY:
     case PA_STREAM_FAILED:
+        MP_VERBOSE(ao, "Stream failed.\n");
+        ao_request_reload(ao);
+        pa_threaded_mainloop_signal(priv->mainloop, 0);
+        break;
+    case PA_STREAM_READY:
     case PA_STREAM_TERMINATED:
         pa_threaded_mainloop_signal(priv->mainloop, 0);
         break;
@@ -169,9 +191,9 @@ static const struct format_map {
     int mp_format;
     pa_sample_format_t pa_format;
 } format_maps[] = {
-    {AF_FORMAT_S16, PA_SAMPLE_S16NE},
-    {AF_FORMAT_S32, PA_SAMPLE_S32NE},
     {AF_FORMAT_FLOAT, PA_SAMPLE_FLOAT32NE},
+    {AF_FORMAT_S32, PA_SAMPLE_S32NE},
+    {AF_FORMAT_S16, PA_SAMPLE_S16NE},
     {AF_FORMAT_U8, PA_SAMPLE_U8},
     {AF_FORMAT_UNKNOWN, 0}
 };
@@ -188,7 +210,7 @@ static pa_encoding_t map_digital_format(int format)
     case AF_FORMAT_S_AAC:   return PA_ENCODING_MPEG2_AAC_IEC61937;
 #endif
     default:
-        if (AF_FORMAT_IS_IEC61937(format))
+        if (af_fmt_is_spdif(format))
             return PA_ENCODING_ANY;
         return PA_ENCODING_PCM;
     }
@@ -308,7 +330,7 @@ static int pa_init_boilerplate(struct ao *ao)
     locked = true;
 
     if (!(priv->context = pa_context_new(pa_threaded_mainloop_get_api(
-                                         priv->mainloop), PULSE_CLIENT_NAME)))
+                                         priv->mainloop), ao->client_name)))
     {
         MP_ERR(ao, "Failed to allocate context\n");
         goto fail;
@@ -321,6 +343,7 @@ static int pa_init_boilerplate(struct ao *ao)
         (long)pa_context_get_server_protocol_version(priv->context));
 
     pa_context_set_state_callback(priv->context, context_state_cb, ao);
+    pa_context_set_subscribe_callback(priv->context, subscribe_cb, ao);
 
     if (pa_context_connect(priv->context, host, 0, NULL) < 0)
         goto fail;
@@ -353,22 +376,8 @@ fail:
     return -1;
 }
 
-static int init(struct ao *ao)
+static bool set_format(struct ao *ao, pa_format_info *format)
 {
-    struct pa_channel_map map;
-    pa_proplist *proplist = NULL;
-    pa_format_info *format = NULL;
-    struct priv *priv = ao->priv;
-    char *sink = priv->cfg_sink && priv->cfg_sink[0] ? priv->cfg_sink : ao->device;
-
-    if (pa_init_boilerplate(ao) < 0)
-        return -1;
-
-    pa_threaded_mainloop_lock(priv->mainloop);
-
-    if (!(format = pa_format_info_new()))
-        goto unlock_and_fail;
-
     ao->format = af_fmt_from_planar(ao->format);
 
     format->encoding = map_digital_format(ao->format);
@@ -388,29 +397,55 @@ static int init(struct ao *ao)
         pa_format_info_set_sample_format(format, fmt_map->pa_format);
     }
 
-    if (!select_chmap(ao, &map))
-        goto unlock_and_fail;
+    struct pa_channel_map map;
 
-    if (!(proplist = pa_proplist_new())) {
-        MP_ERR(ao, "Failed to allocate proplist\n");
-        goto unlock_and_fail;
-    }
-    (void)pa_proplist_sets(proplist, PA_PROP_MEDIA_ROLE, "video");
-    (void)pa_proplist_sets(proplist, PA_PROP_MEDIA_ICON_NAME,
-                           PULSE_CLIENT_NAME);
+    if (!select_chmap(ao, &map))
+        return false;
 
     pa_format_info_set_rate(format, ao->samplerate);
     pa_format_info_set_channels(format, ao->channels.num);
     pa_format_info_set_channel_map(format, &map);
 
-    if (!pa_format_info_valid(format)) {
-        MP_ERR(ao, "Invalid audio format\n");
+    return ao->samplerate < PA_RATE_MAX && pa_format_info_valid(format);
+}
+
+static int init(struct ao *ao)
+{
+    pa_proplist *proplist = NULL;
+    pa_format_info *format = NULL;
+    struct priv *priv = ao->priv;
+    char *sink = ao->device;
+
+    if (pa_init_boilerplate(ao) < 0)
+        return -1;
+
+    pa_threaded_mainloop_lock(priv->mainloop);
+
+    if (!(proplist = pa_proplist_new())) {
+        MP_ERR(ao, "Failed to allocate proplist\n");
         goto unlock_and_fail;
+    }
+    (void)pa_proplist_sets(proplist, PA_PROP_MEDIA_ICON_NAME, ao->client_name);
+
+    if (!(format = pa_format_info_new()))
+        goto unlock_and_fail;
+
+    if (!set_format(ao, format)) {
+        ao->channels = (struct mp_chmap) MP_CHMAP_INIT_STEREO;
+        ao->samplerate = 48000;
+        ao->format = AF_FORMAT_FLOAT;
+        if (!set_format(ao, format)) {
+            MP_ERR(ao, "Invalid audio format\n");
+            goto unlock_and_fail;
+        }
     }
 
     if (!(priv->stream = pa_stream_new_extended(priv->context, "audio stream",
                                                 &format, 1, proplist)))
         goto unlock_and_fail;
+
+    pa_format_info_free(format);
+    format = NULL;
 
     pa_proplist_free(proplist);
     proplist = NULL;
@@ -419,11 +454,11 @@ static int init(struct ao *ao)
     pa_stream_set_write_callback(priv->stream, stream_request_cb, ao);
     pa_stream_set_latency_update_callback(priv->stream,
                                           stream_latency_update_cb, ao);
-    int buf_size = af_fmt_seconds_to_bytes(ao->format, priv->cfg_buffer / 1000.0,
-                                           ao->channels.num, ao->samplerate);
+    uint32_t buf_size = ao->samplerate * (priv->cfg_buffer / 1000.0) *
+        af_fmt_to_bytes(ao->format) * ao->channels.num;
     pa_buffer_attr bufattr = {
         .maxlength = -1,
-        .tlength = buf_size > 0 ? buf_size : (uint32_t)-1,
+        .tlength = buf_size > 0 ? buf_size : -1,
         .prebuf = -1,
         .minreq = -1,
         .fragsize = -1,
@@ -533,7 +568,7 @@ static int get_space(struct ao *ao)
     return space / ao->sstride;
 }
 
-static float get_delay_hackfixed(struct ao *ao)
+static double get_delay_hackfixed(struct ao *ao)
 {
     /* This code basically does what pa_stream_get_latency() _should_
      * do, but doesn't due to multiple known bugs in PulseAudio (at
@@ -588,7 +623,7 @@ static float get_delay_hackfixed(struct ao *ao)
     return latency / 1e6;
 }
 
-static float get_delay_pulse(struct ao *ao)
+static double get_delay_pulse(struct ao *ao)
 {
     struct priv *priv = ao->priv;
     pa_usec_t latency = (pa_usec_t) -1;
@@ -606,7 +641,7 @@ static float get_delay_pulse(struct ao *ao)
 }
 
 // Return the current latency in seconds
-static float get_delay(struct ao *ao)
+static double get_delay(struct ao *ao)
 {
     struct priv *priv = ao->priv;
     if (priv->cfg_latency_hacks) {
@@ -747,22 +782,32 @@ static void sink_info_cb(pa_context *c, const pa_sink_info *i, int eol, void *ud
     ao_device_list_add(ctx->list, ctx->ao, &entry);
 }
 
+static int hotplug_init(struct ao *ao)
+{
+    struct priv *priv = ao->priv;
+    if (pa_init_boilerplate(ao) < 0)
+        return -1;
+
+    pa_threaded_mainloop_lock(priv->mainloop);
+    waitop(priv, pa_context_subscribe(priv->context, PA_SUBSCRIPTION_MASK_SINK,
+                                      context_success_cb, ao));
+
+    return 0;
+}
+
 static void list_devs(struct ao *ao, struct ao_device_list *list)
 {
     struct priv *priv = ao->priv;
-    bool need_uninit = !priv->mainloop;
     struct sink_cb_ctx ctx = {ao, list};
-
-    if (need_uninit && pa_init_boilerplate(ao) < 0)
-        return;
 
     pa_threaded_mainloop_lock(priv->mainloop);
     waitop(priv, pa_context_get_sink_info_list(priv->context, sink_info_cb, &ctx));
-
-    if (need_uninit)
-        uninit(ao);
 }
 
+static void hotplug_uninit(struct ao *ao)
+{
+    uninit(ao);
+}
 
 #define OPT_BASE_STRUCT struct priv
 
@@ -781,17 +826,18 @@ const struct ao_driver audio_out_pulse = {
     .drain     = drain,
     .wait      = wait_audio,
     .wakeup    = wakeup,
+    .hotplug_init = hotplug_init,
+    .hotplug_uninit = hotplug_uninit,
     .list_devs = list_devs,
     .priv_size = sizeof(struct priv),
     .priv_defaults = &(const struct priv) {
-        .cfg_buffer = 250,
-        .cfg_latency_hacks = 1,
+        .cfg_buffer = 100,
     },
     .options = (const struct m_option[]) {
         OPT_STRING("host", cfg_host, 0),
-        OPT_STRING("sink", cfg_sink, 0),
         OPT_CHOICE_OR_INT("buffer", cfg_buffer, 0, 1, 2000, ({"native", 0})),
         OPT_FLAG("latency-hacks", cfg_latency_hacks, 0),
         {0}
     },
+    .options_prefix = "pulse",
 };

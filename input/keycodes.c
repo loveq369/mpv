@@ -1,19 +1,18 @@
 /*
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -37,6 +36,7 @@ struct key_name {
 static const struct key_name key_names[] = {
   { ' ', "SPACE" },
   { '#', "SHARP" },
+  { 0x3000, "IDEOGRAPHIC_SPACE" },
   { MP_KEY_ENTER, "ENTER" },
   { MP_KEY_TAB, "TAB" },
   { MP_KEY_BACKSPACE, "BS" },
@@ -78,82 +78,29 @@ static const struct key_name key_names[] = {
   { MP_KEY_KPDEC, "KP_DEC" },
   { MP_KEY_KPINS, "KP_INS" },
   { MP_KEY_KPENTER, "KP_ENTER" },
-  { MP_MOUSE_BTN0, "MOUSE_BTN0" },
-  { MP_MOUSE_BTN1, "MOUSE_BTN1" },
-  { MP_MOUSE_BTN2, "MOUSE_BTN2" },
-  { MP_MOUSE_BTN3, "MOUSE_BTN3" },
-  { MP_MOUSE_BTN4, "MOUSE_BTN4" },
-  { MP_MOUSE_BTN5, "MOUSE_BTN5" },
-  { MP_MOUSE_BTN6, "MOUSE_BTN6" },
-  { MP_MOUSE_BTN7, "MOUSE_BTN7" },
-  { MP_MOUSE_BTN8, "MOUSE_BTN8" },
-  { MP_MOUSE_BTN9, "MOUSE_BTN9" },
-  { MP_MOUSE_BTN10, "MOUSE_BTN10" },
-  { MP_MOUSE_BTN11, "MOUSE_BTN11" },
-  { MP_MOUSE_BTN12, "MOUSE_BTN12" },
-  { MP_MOUSE_BTN13, "MOUSE_BTN13" },
-  { MP_MOUSE_BTN14, "MOUSE_BTN14" },
-  { MP_MOUSE_BTN15, "MOUSE_BTN15" },
-  { MP_MOUSE_BTN16, "MOUSE_BTN16" },
-  { MP_MOUSE_BTN17, "MOUSE_BTN17" },
-  { MP_MOUSE_BTN18, "MOUSE_BTN18" },
-  { MP_MOUSE_BTN19, "MOUSE_BTN19" },
-  { MP_MOUSE_BTN0_DBL, "MOUSE_BTN0_DBL" },
-  { MP_MOUSE_BTN1_DBL, "MOUSE_BTN1_DBL" },
-  { MP_MOUSE_BTN2_DBL, "MOUSE_BTN2_DBL" },
-  { MP_MOUSE_BTN3_DBL, "MOUSE_BTN3_DBL" },
-  { MP_MOUSE_BTN4_DBL, "MOUSE_BTN4_DBL" },
-  { MP_MOUSE_BTN5_DBL, "MOUSE_BTN5_DBL" },
-  { MP_MOUSE_BTN6_DBL, "MOUSE_BTN6_DBL" },
-  { MP_MOUSE_BTN7_DBL, "MOUSE_BTN7_DBL" },
-  { MP_MOUSE_BTN8_DBL, "MOUSE_BTN8_DBL" },
-  { MP_MOUSE_BTN9_DBL, "MOUSE_BTN9_DBL" },
-  { MP_MOUSE_BTN10_DBL, "MOUSE_BTN10_DBL" },
-  { MP_MOUSE_BTN11_DBL, "MOUSE_BTN11_DBL" },
-  { MP_MOUSE_BTN12_DBL, "MOUSE_BTN12_DBL" },
-  { MP_MOUSE_BTN13_DBL, "MOUSE_BTN13_DBL" },
-  { MP_MOUSE_BTN14_DBL, "MOUSE_BTN14_DBL" },
-  { MP_MOUSE_BTN15_DBL, "MOUSE_BTN15_DBL" },
-  { MP_MOUSE_BTN16_DBL, "MOUSE_BTN16_DBL" },
-  { MP_MOUSE_BTN17_DBL, "MOUSE_BTN17_DBL" },
-  { MP_MOUSE_BTN18_DBL, "MOUSE_BTN18_DBL" },
-  { MP_MOUSE_BTN19_DBL, "MOUSE_BTN19_DBL" },
-  { MP_JOY_AXIS1_MINUS, "JOY_UP" },
-  { MP_JOY_AXIS1_PLUS, "JOY_DOWN" },
-  { MP_JOY_AXIS0_MINUS, "JOY_LEFT" },
-  { MP_JOY_AXIS0_PLUS, "JOY_RIGHT" },
-
-  { MP_JOY_AXIS0_PLUS,  "JOY_AXIS0_PLUS" },
-  { MP_JOY_AXIS0_MINUS, "JOY_AXIS0_MINUS" },
-  { MP_JOY_AXIS1_PLUS,  "JOY_AXIS1_PLUS" },
-  { MP_JOY_AXIS1_MINUS, "JOY_AXIS1_MINUS" },
-  { MP_JOY_AXIS2_PLUS,  "JOY_AXIS2_PLUS" },
-  { MP_JOY_AXIS2_MINUS, "JOY_AXIS2_MINUS" },
-  { MP_JOY_AXIS3_PLUS,  "JOY_AXIS3_PLUS" },
-  { MP_JOY_AXIS3_MINUS, "JOY_AXIS3_MINUS" },
-  { MP_JOY_AXIS4_PLUS,  "JOY_AXIS4_PLUS" },
-  { MP_JOY_AXIS4_MINUS, "JOY_AXIS4_MINUS" },
-  { MP_JOY_AXIS5_PLUS,  "JOY_AXIS5_PLUS" },
-  { MP_JOY_AXIS5_MINUS, "JOY_AXIS5_MINUS" },
-  { MP_JOY_AXIS6_PLUS,  "JOY_AXIS6_PLUS" },
-  { MP_JOY_AXIS6_MINUS, "JOY_AXIS6_MINUS" },
-  { MP_JOY_AXIS7_PLUS,  "JOY_AXIS7_PLUS" },
-  { MP_JOY_AXIS7_MINUS, "JOY_AXIS7_MINUS" },
-  { MP_JOY_AXIS8_PLUS,  "JOY_AXIS8_PLUS" },
-  { MP_JOY_AXIS8_MINUS, "JOY_AXIS8_MINUS" },
-  { MP_JOY_AXIS9_PLUS,  "JOY_AXIS9_PLUS" },
-  { MP_JOY_AXIS9_MINUS, "JOY_AXIS9_MINUS" },
-
-  { MP_JOY_BTN0,        "JOY_BTN0" },
-  { MP_JOY_BTN1,        "JOY_BTN1" },
-  { MP_JOY_BTN2,        "JOY_BTN2" },
-  { MP_JOY_BTN3,        "JOY_BTN3" },
-  { MP_JOY_BTN4,        "JOY_BTN4" },
-  { MP_JOY_BTN5,        "JOY_BTN5" },
-  { MP_JOY_BTN6,        "JOY_BTN6" },
-  { MP_JOY_BTN7,        "JOY_BTN7" },
-  { MP_JOY_BTN8,        "JOY_BTN8" },
-  { MP_JOY_BTN9,        "JOY_BTN9" },
+  { MP_MBTN_LEFT, "MBTN_LEFT" },
+  { MP_MBTN_MID, "MBTN_MID" },
+  { MP_MBTN_RIGHT, "MBTN_RIGHT" },
+  { MP_WHEEL_UP, "WHEEL_UP" },
+  { MP_WHEEL_DOWN, "WHEEL_DOWN" },
+  { MP_WHEEL_LEFT, "WHEEL_LEFT" },
+  { MP_WHEEL_RIGHT, "WHEEL_RIGHT" },
+  { MP_MBTN_BACK, "MBTN_BACK" },
+  { MP_MBTN_FORWARD, "MBTN_FORWARD" },
+  { MP_MBTN9, "MBTN9" },
+  { MP_MBTN10, "MBTN10" },
+  { MP_MBTN11, "MBTN11" },
+  { MP_MBTN12, "MBTN12" },
+  { MP_MBTN13, "MBTN13" },
+  { MP_MBTN14, "MBTN14" },
+  { MP_MBTN15, "MBTN15" },
+  { MP_MBTN16, "MBTN16" },
+  { MP_MBTN17, "MBTN17" },
+  { MP_MBTN18, "MBTN18" },
+  { MP_MBTN19, "MBTN19" },
+  { MP_MBTN_LEFT_DBL, "MBTN_LEFT_DBL" },
+  { MP_MBTN_MID_DBL, "MBTN_MID_DBL" },
+  { MP_MBTN_RIGHT_DBL, "MBTN_RIGHT_DBL" },
 
   { MP_AR_PLAY,         "AR_PLAY" },
   { MP_AR_PLAY_HOLD,    "AR_PLAY_HOLD" },
@@ -169,11 +116,6 @@ static const struct key_name key_names[] = {
   { MP_AR_VUP_HOLD,     "AR_VUP_HOLD" },
   { MP_AR_VDOWN,        "AR_VDOWN" },
   { MP_AR_VDOWN_HOLD,   "AR_VDOWN_HOLD" },
-
-  { MP_AXIS_UP,         "AXIS_UP" },
-  { MP_AXIS_DOWN,       "AXIS_DOWN" },
-  { MP_AXIS_LEFT,       "AXIS_LEFT" },
-  { MP_AXIS_RIGHT,      "AXIS_RIGHT" },
 
   { MP_KEY_POWER,       "POWER" },
   { MP_KEY_MENU,        "MENU" },
@@ -194,6 +136,10 @@ static const struct key_name key_names[] = {
   { MP_KEY_FAVORITES,   "FAVORITES" },
   { MP_KEY_SEARCH,      "SEARCH" },
   { MP_KEY_SLEEP,       "SLEEP" },
+  { MP_KEY_CANCEL,      "CANCEL" },
+  { MP_KEY_RECORD,      "RECORD" },
+  { MP_KEY_CHANNEL_UP,  "CHANNEL_UP" },
+  { MP_KEY_CHANNEL_DOWN,"CHANNEL_DOWN" },
 
   // These are kept for backward compatibility
   { MP_KEY_PAUSE,   "XF86_PAUSE" },
@@ -201,9 +147,41 @@ static const struct key_name key_names[] = {
   { MP_KEY_PREV,    "XF86_PREV" },
   { MP_KEY_NEXT,    "XF86_NEXT" },
 
+  // Deprecated numeric aliases for the mouse buttons
+  { MP_MBTN_LEFT, "MOUSE_BTN0" },
+  { MP_MBTN_MID, "MOUSE_BTN1" },
+  { MP_MBTN_RIGHT, "MOUSE_BTN2" },
+  { MP_WHEEL_UP, "MOUSE_BTN3" },
+  { MP_WHEEL_DOWN, "MOUSE_BTN4" },
+  { MP_WHEEL_LEFT, "MOUSE_BTN5" },
+  { MP_WHEEL_RIGHT, "MOUSE_BTN6" },
+  { MP_MBTN_BACK, "MOUSE_BTN7" },
+  { MP_MBTN_FORWARD, "MOUSE_BTN8" },
+  { MP_MBTN9, "MOUSE_BTN9" },
+  { MP_MBTN10, "MOUSE_BTN10" },
+  { MP_MBTN11, "MOUSE_BTN11" },
+  { MP_MBTN12, "MOUSE_BTN12" },
+  { MP_MBTN13, "MOUSE_BTN13" },
+  { MP_MBTN14, "MOUSE_BTN14" },
+  { MP_MBTN15, "MOUSE_BTN15" },
+  { MP_MBTN16, "MOUSE_BTN16" },
+  { MP_MBTN17, "MOUSE_BTN17" },
+  { MP_MBTN18, "MOUSE_BTN18" },
+  { MP_MBTN19, "MOUSE_BTN19" },
+  { MP_MBTN_LEFT_DBL, "MOUSE_BTN0_DBL" },
+  { MP_MBTN_MID_DBL, "MOUSE_BTN1_DBL" },
+  { MP_MBTN_RIGHT_DBL, "MOUSE_BTN2_DBL" },
+  { MP_WHEEL_UP, "AXIS_UP" },
+  { MP_WHEEL_DOWN, "AXIS_DOWN" },
+  { MP_WHEEL_LEFT, "AXIS_LEFT" },
+  { MP_WHEEL_RIGHT, "AXIS_RIGHT" },
+
   { MP_KEY_CLOSE_WIN,   "CLOSE_WIN" },
   { MP_KEY_MOUSE_MOVE,  "MOUSE_MOVE" },
   { MP_KEY_MOUSE_LEAVE, "MOUSE_LEAVE" },
+  { MP_KEY_MOUSE_ENTER, "MOUSE_ENTER" },
+
+  { MP_KEY_UNMAPPED,    "UNMAPPED" },
 
   { 0, NULL }
 };
@@ -274,7 +252,7 @@ static void mp_input_append_key_name(bstr *buf, int key)
     }
 
     // Print the hex key code
-    bstr_xappend_asprintf(NULL, buf, "%#-8x", key);
+    bstr_xappend_asprintf(NULL, buf, "0x%x", key);
 }
 
 char *mp_input_get_key_name(int key)
@@ -305,7 +283,7 @@ int mp_input_get_keys_from_string(char *name, int max_num_keys,
 
     ptr = name;
     n = 0;
-    for (end = strchr(ptr, '-'); ptr != NULL; end = strchr(ptr, '-')) {
+    for (end = strchr(ptr, '-'); ; end = strchr(ptr, '-')) {
         if (end && end[1] != '\0') {
             if (end[1] == '-')
                 end = &end[1];

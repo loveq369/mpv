@@ -1,31 +1,34 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #import <Foundation/Foundation.h>
 #include "options/path.h"
 #include "osdep/path.h"
 
-int mp_add_macosx_bundle_dir(struct mpv_global *global, char **dirs, int i)
+const char *mp_get_platform_path_osx(void *talloc_ctx, const char *type)
 {
-    void *talloc_ctx = dirs;
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    NSString *path = [[NSBundle mainBundle] resourcePath];
-    dirs[i++] = talloc_strdup(talloc_ctx, [path UTF8String]);
-    [pool release];
-    return i;
+    if (strcmp(type, "osxbundle") == 0 && getenv("MPVBUNDLE")) {
+        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+        NSString *path = [[NSBundle mainBundle] resourcePath];
+        char *res = talloc_strdup(talloc_ctx, [path UTF8String]);
+        [pool release];
+        return res;
+    }
+    if (strcmp(type, "desktop") == 0 && getenv("HOME"))
+        return mp_path_join(talloc_ctx, getenv("HOME"), "Desktop");
+    return NULL;
 }

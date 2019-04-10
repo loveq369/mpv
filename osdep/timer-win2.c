@@ -1,21 +1,18 @@
 /*
- * precise timer routines for Windows
+ * This file is part of mpv.
  *
- * This file is part of MPlayer.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <windows.h>
@@ -23,6 +20,10 @@
 #include <mmsystem.h>
 #include <stdlib.h>
 #include "timer.h"
+
+#include "config.h"
+
+static LARGE_INTEGER perf_freq;
 
 void mp_sleep_us(int64_t us)
 {
@@ -38,20 +39,20 @@ void mp_sleep_us(int64_t us)
 
 uint64_t mp_raw_time_us(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv,NULL);
-    return tv.tv_sec * 1000000LL + tv.tv_usec;
-}
+    LARGE_INTEGER perf_count;
+    QueryPerformanceCounter(&perf_count);
 
-static void restore_timer(void)
-{
-    // The MSDN documents that begin/end "must" be matched. This satisfies
-    // this requirement.
-    timeEndPeriod(1);
+    // Convert QPC units (1/perf_freq seconds) to microseconds. This will work
+    // without overflow because the QPC value is guaranteed not to roll-over
+    // within 100 years, so perf_freq must be less than 2.9*10^9.
+    return perf_count.QuadPart / perf_freq.QuadPart * 1000000 +
+        perf_count.QuadPart % perf_freq.QuadPart * 1000000 / perf_freq.QuadPart;
 }
 
 void mp_raw_time_init(void)
 {
+    QueryPerformanceFrequency(&perf_freq);
+#if !HAVE_UWP
     timeBeginPeriod(1); // request 1ms timer resolution
-    atexit(restore_timer);
+#endif
 }

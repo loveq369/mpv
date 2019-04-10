@@ -4,24 +4,23 @@
  *
  * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
 #include "audio/format.h"
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "ao.h"
 #include "internal.h"
 #include "common/common.h"
@@ -40,8 +39,6 @@ struct priv
 
 static const int fmtmap[][2] = {
     {AF_FORMAT_U8,      AUDIO_U8},
-    {AF_FORMAT_S8,      AUDIO_S8},
-    {AF_FORMAT_U16,     AUDIO_U16SYS},
     {AF_FORMAT_S16,     AUDIO_S16SYS},
 #ifdef AUDIO_S32SYS
     {AF_FORMAT_S32,     AUDIO_S32SYS},
@@ -116,8 +113,7 @@ static int init(struct ao *ao)
 
     ao->format = af_fmt_from_planar(ao->format);
 
-    SDL_AudioSpec desired, obtained;
-
+    SDL_AudioSpec desired = {0};
     desired.format = AUDIO_S16SYS;
     for (int n = 0; fmtmap[n][0]; n++) {
         if (ao->format == fmtmap[n][0]) {
@@ -127,8 +123,10 @@ static int init(struct ao *ao)
     }
     desired.freq = ao->samplerate;
     desired.channels = ao->channels.num;
-    desired.samples = MPMIN(32768, ceil_power_of_two(ao->samplerate *
-                                                     priv->buflen));
+    if (priv->buflen) {
+        desired.samples = MPMIN(32768, ceil_power_of_two(ao->samplerate *
+                                                         priv->buflen));
+    }
     desired.callback = audio_callback;
     desired.userdata = ao;
 
@@ -137,7 +135,7 @@ static int init(struct ao *ao)
                (int) desired.freq, (int) desired.channels,
                (int) desired.format, (int) desired.samples);
 
-    obtained = desired;
+    SDL_AudioSpec obtained = desired;
     if (SDL_OpenAudio(&desired, &obtained)) {
         if (!ao->probing)
             MP_ERR(ao, "could not open audio: %s\n", SDL_GetError());
@@ -215,4 +213,5 @@ const struct ao_driver audio_out_sdl = {
         OPT_FLOAT("buflen", buflen, 0),
         {0}
     },
+    .options_prefix = "sdl",
 };

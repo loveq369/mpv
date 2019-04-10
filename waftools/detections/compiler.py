@@ -20,7 +20,12 @@ def __add_generic_flags__(ctx):
     ctx.env.CFLAGS += ["-D_ISOC99_SOURCE", "-D_GNU_SOURCE",
                        "-D_LARGEFILE_SOURCE", "-D_FILE_OFFSET_BITS=64",
                        "-D_LARGEFILE64_SOURCE",
-                       "-std=c99", "-Wall"]
+                       "-Wall"]
+
+    if ctx.check_cc(cflags="-std=c11", mandatory=False):
+        ctx.env.CFLAGS += ["-std=c11"]
+    else:
+        ctx.env.CFLAGS += ["-std=c99"]
 
     if ctx.is_optimization():
         ctx.env.CFLAGS += ['-O2']
@@ -28,30 +33,43 @@ def __add_generic_flags__(ctx):
     if ctx.is_debug_build():
         ctx.env.CFLAGS += ['-g']
 
+    __test_and_add_flags__(ctx, ["-Werror=implicit-function-declaration",
+                                 "-Wno-error=deprecated-declarations",
+                                 "-Wno-error=unused-function",
+                                 "-Wempty-body",
+                                 "-Wdisabled-optimization",
+                                 "-Wstrict-prototypes",
+                                 "-Wno-format-zero-length",
+                                 "-Werror=format-security",
+                                 "-Wno-redundant-decls",
+                                 "-Wvla"])
+
 def __add_gcc_flags__(ctx):
     ctx.env.CFLAGS += ["-Wall", "-Wundef", "-Wmissing-prototypes", "-Wshadow",
-                       "-Wno-switch", "-Wno-parentheses", "-Wpointer-arith",
-                       "-Wredundant-decls", "-Wno-pointer-sign",
-                       "-Werror=implicit-function-declaration",
-                       "-Wno-error=deprecated-declarations",
-                       "-Wno-error=unused-function" ]
-    __test_and_add_flags__(ctx, ["-Wempty-body"])
-    __test_and_add_flags__(ctx, ["-Wdisabled-optimization"])
-    __test_and_add_flags__(ctx, ["-Wstrict-prototypes"])
-    __test_and_add_flags__(ctx, ["-Wno-format-zero-length"])
+                       "-Wno-switch", "-Wparentheses", "-Wpointer-arith",
+                       "-Wno-pointer-sign",
+                       # GCC bug 66425
+                       "-Wno-unused-result"]
 
 def __add_clang_flags__(ctx):
     ctx.env.CFLAGS += ["-Wno-logical-op-parentheses", "-fcolor-diagnostics",
                        "-Wno-tautological-compare",
                        "-Wno-tautological-constant-out-of-range-compare" ]
 
+def __add_mswin_flags__(ctx):
+    ctx.env.CFLAGS += ['-D_WIN32_WINNT=0x0602', '-DUNICODE', '-DCOBJMACROS',
+                       '-DINITGUID', '-U__STRICT_ANSI__']
+    ctx.env.LAST_LINKFLAGS += ['-Wl,--major-os-version=6,--minor-os-version=0',
+                 '-Wl,--major-subsystem-version=6,--minor-subsystem-version=0']
+
 def __add_mingw_flags__(ctx):
-    ctx.env.CFLAGS += ['-D__USE_MINGW_ANSI_STDIO=1']
-    ctx.env.LAST_LINKFLAGS += ['-mwindows']
+    __add_mswin_flags__(ctx)
+    ctx.env.CFLAGS += ['-municode', '-D__USE_MINGW_ANSI_STDIO=1']
+    ctx.env.LAST_LINKFLAGS += ['-municode', '-mwindows']
 
 def __add_cygwin_flags__(ctx):
+    __add_mswin_flags__(ctx)
     ctx.env.CFLAGS += ['-mwin32']
-    ctx.env.CFLAGS += ['-U__STRICT_ANSI__']
 
 __compiler_map__ = {
     '__GNUC__':  __add_gcc_flags__,
@@ -70,4 +88,3 @@ def __apply_map__(ctx, fnmap):
 def configure(ctx):
     __add_generic_flags__(ctx)
     __apply_map__(ctx, __compiler_map__)
-

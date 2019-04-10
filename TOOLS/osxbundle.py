@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import fileinput
 from optparse import OptionParser
 
 def sh(command):
@@ -35,10 +36,24 @@ def copy_binary(binary_name):
     shutil.copy(binary_name, target_binary(binary_name))
 
 def apply_plist_template(plist_file, version):
-    sh("sed -i -e 's/${VERSION}/%s/g' %s" % (version, plist_file))
+    for line in fileinput.input(plist_file, inplace=1):
+        print (line.rstrip().replace('${VERSION}', version))
+
+def create_bundle_symlink(binary_name, symlink_name):
+    os.symlink(os.path.basename(binary_name),
+               os.path.join(target_directory(binary_name), symlink_name))
+
+def bundle_version():
+    if os.path.exists('VERSION'):
+        x = open('VERSION')
+        version = x.read()
+        x.close()
+    else:
+        version = sh("./version.sh").strip()
+    return version
 
 def main():
-    version = sh("./version.sh --print").strip()
+    version = bundle_version().rstrip()
 
     usage = "usage: %prog [options] arg"
     parser = OptionParser(usage)
@@ -58,6 +73,8 @@ def main():
     copy_bundle(binary_name)
     print("> copying binary")
     copy_binary(binary_name)
+    print("> create bundle symlink")
+    create_bundle_symlink(binary_name, "mpv-bundle")
     print("> generating Info.plist")
     apply_plist_template(target_plist(binary_name), version)
 

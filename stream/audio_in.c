@@ -1,19 +1,18 @@
 /*
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -23,6 +22,7 @@
 #include "config.h"
 
 #include "audio_in.h"
+#include "common/common.h"
 #include "common/msg.h"
 #include <string.h>
 #include <errno.h>
@@ -45,19 +45,19 @@ int audio_in_init(audio_in_t *ai, struct mp_log *log, int type)
     case AUDIO_IN_ALSA:
         ai->alsa.handle = NULL;
         ai->alsa.log = NULL;
-        ai->alsa.device = strdup("default");
+        ai->alsa.device = NULL;
         return 0;
 #endif
 #if HAVE_OSS_AUDIO
     case AUDIO_IN_OSS:
         ai->oss.audio_fd = -1;
-        ai->oss.device = strdup("/dev/dsp");
+        ai->oss.device = NULL;
         return 0;
 #endif
 #if HAVE_SNDIO
     case AUDIO_IN_SNDIO:
         ai->sndio.hdl = NULL;
-        ai->sndio.device = strdup("default");
+        ai->sndio.device = NULL;
         return 0;
 #endif
     default:
@@ -161,9 +161,11 @@ int audio_in_set_device(audio_in_t *ai, char *device)
     case AUDIO_IN_ALSA:
         free(ai->alsa.device);
         ai->alsa.device = strdup(device);
-        /* mplayer cannot handle colons in arguments */
-        for (i = 0; i < (int)strlen(ai->alsa.device); i++) {
-            if (ai->alsa.device[i] == '.') ai->alsa.device[i] = ':';
+        if (ai->alsa.device) {
+            /* mplayer could not handle colons in arguments */
+            for (i = 0; i < (int)strlen(ai->alsa.device); i++) {
+                if (ai->alsa.device[i] == '.') ai->alsa.device[i] = ':';
+            }
         }
         return 0;
 #endif
@@ -268,7 +270,7 @@ int audio_in_read_chunk(audio_in_t *ai, unsigned char *buffer)
         ret = read(ai->oss.audio_fd, buffer, ai->blocksize);
        if (ret != ai->blocksize) {
            if (ret < 0) {
-               MP_ERR(ai, "\nError reading audio: %s\n", strerror(errno));
+               MP_ERR(ai, "\nError reading audio: %s\n", mp_strerror(errno));
 
            } else {
                MP_ERR(ai, "\nNot enough audio samples!\n");
@@ -282,7 +284,7 @@ int audio_in_read_chunk(audio_in_t *ai, unsigned char *buffer)
        ret = sio_read(ai->sndio.hdl, buffer, ai->blocksize);
         if (ret != ai->blocksize) {
             if (ret < 0) {
-                MP_ERR(ai, "\nError reading audio: %s\n", strerror(errno));
+                MP_ERR(ai, "\nError reading audio: %s\n", mp_strerror(errno));
             } else {
                 MP_ERR(ai, "\nNot enough audio samples!\n");
             }

@@ -8,29 +8,26 @@
  *   Alex Beregszaszi <alex@fsn.hu>
  *   Gerd Knorr <kraxel@bytesex.org>
  *
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
-
 known issues:
 - norm setting isn't consistent with tvi_v4l
 - the same for volume/bass/treble/balance
-
 */
 
 #include "config.h"
@@ -58,7 +55,6 @@ known issues:
 #endif
 #include "common/msg.h"
 #include "common/common.h"
-#include "video/img_fourcc.h"
 #include "audio/format.h"
 #include "tv.h"
 #include "audio_in.h"
@@ -76,7 +72,11 @@ known issues:
 #define V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC 0x2000
 #endif
 
-#define HAVE_CLOCK_GETTIME (defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0)
+#if defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0
+#define HAVE_CLOCK_GETTIME 1
+#else
+#define HAVE_CLOCK_GETTIME 0
+#endif
 
 #define info tvi_info_v4l2
 static tvi_handle_t *tvi_init_v4l2(struct mp_log *log, tv_param_t* tv_param);
@@ -235,7 +235,8 @@ static int fcc_mp2vl(int fcc)
     case MP_FOURCC_YUY2:   return V4L2_PIX_FMT_YUYV;
     case MP_FOURCC_YV12:   return V4L2_PIX_FMT_YVU420;
     case MP_FOURCC_UYVY:   return V4L2_PIX_FMT_UYVY;
-    case MP_FOURCC_MJPEG:   return V4L2_PIX_FMT_MJPEG;
+    case MP_FOURCC_MJPEG:  return V4L2_PIX_FMT_MJPEG;
+    case MP_FOURCC_JPEG:   return V4L2_PIX_FMT_JPEG;
     }
     return fcc;
 }
@@ -259,7 +260,8 @@ static int fcc_vl2mp(int fcc)
     case V4L2_PIX_FMT_YVU420:   return MP_FOURCC_YV12;
     case V4L2_PIX_FMT_YUYV:     return MP_FOURCC_YUY2;
     case V4L2_PIX_FMT_UYVY:     return MP_FOURCC_UYVY;
-    case V4L2_PIX_FMT_MJPEG:     return MP_FOURCC_MJPEG;
+    case V4L2_PIX_FMT_MJPEG:    return MP_FOURCC_MJPEG;
+    case V4L2_PIX_FMT_JPEG:     return MP_FOURCC_JPEG;
     }
     return fcc;
 }
@@ -298,6 +300,7 @@ static const char *pixfmt2name(char *buf, int pixfmt)
     case V4L2_PIX_FMT_HI240:        return "HI240";
     case V4L2_PIX_FMT_WNVA:         return "WNVA";
     case V4L2_PIX_FMT_MJPEG:        return "MJPEG";
+    case V4L2_PIX_FMT_JPEG:         return "JPEG";
     }
     sprintf(buf, "unknown (0x%x)", pixfmt);
     return buf;
@@ -464,8 +467,8 @@ static int getfmt(priv_t *priv)
 
     priv->format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if ((i = v4l2_ioctl(priv->video_fd, VIDIOC_G_FMT, &priv->format)) < 0) {
-        MP_ERR(priv, "%s: ioctl get format failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl get format failed: %s\n",
+               mp_strerror(errno));
     }
     return i;
 }
@@ -484,16 +487,15 @@ static int getstd(priv_t *priv)
 
         parm.type=V4L2_BUF_TYPE_VIDEO_CAPTURE;
         if(v4l2_ioctl(priv->video_fd, VIDIOC_G_PARM, &parm) >= 0) {
-            MP_WARN(priv, "%s: your device driver does not support VIDIOC_G_STD ioctl,"
-                   " VIDIOC_G_PARM was used instead.\n", info.short_name);
+            MP_WARN(priv, "your device driver does not support VIDIOC_G_STD ioctl,"
+                   " VIDIOC_G_PARM was used instead.\n");
             priv->standard.index=0;
             priv->standard.id=0;
             priv->standard.frameperiod=parm.parm.capture.timeperframe;
             return 0;
         }
 
-        MP_ERR(priv, "%s: ioctl get standard failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl get standard failed: %s\n", mp_strerror(errno));
         return -1;
     }
     do {
@@ -543,8 +545,7 @@ static int set_mute(priv_t *priv, int value)
     control.id = V4L2_CID_AUDIO_MUTE;
     control.value = value;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_S_CTRL, &control) < 0) {
-        MP_ERR(priv, "%s: ioctl set mute failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl set mute failed: %s\n", mp_strerror(errno));
         return 0;
     }
     return 1;
@@ -558,8 +559,7 @@ static int set_control(priv_t *priv, struct v4l2_control *control, int val_signe
     struct v4l2_queryctrl        qctrl;
     qctrl.id = control->id;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_QUERYCTRL, &qctrl) < 0) {
-        MP_ERR(priv, "%s: ioctl query control failed: %s\n",
-         info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl query control failed: %s\n", mp_strerror(errno));
         return TVI_CONTROL_FALSE;
     }
 
@@ -583,11 +583,11 @@ static int set_control(priv_t *priv, struct v4l2_control *control, int val_signe
 
 
     if (v4l2_ioctl(priv->video_fd, VIDIOC_S_CTRL, control) < 0) {
-        MP_ERR(priv, "%s: ioctl set %s %d failed: %s\n",
-         info.short_name, qctrl.name, control->value, strerror(errno));
+        MP_ERR(priv, "ioctl set %s %d failed: %s\n",
+               qctrl.name, control->value, mp_strerror(errno));
         return TVI_CONTROL_FALSE;
     }
-    MP_VERBOSE(priv, "%s: set %s: %d [%d, %d]\n", info.short_name,
+    MP_VERBOSE(priv, "set %s: %d [%d, %d]\n",
      qctrl.name, control->value, qctrl.minimum, qctrl.maximum);
 
     return TVI_CONTROL_TRUE;
@@ -602,17 +602,15 @@ static int get_control(priv_t *priv, struct v4l2_control *control, int val_signe
 
     qctrl.id = control->id;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_QUERYCTRL, &qctrl) < 0) {
-        MP_ERR(priv, "%s: ioctl query control failed: %s\n",
-         info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl query control failed: %s\n", mp_strerror(errno));
         return TVI_CONTROL_FALSE;
     }
 
     if (v4l2_ioctl(priv->video_fd, VIDIOC_G_CTRL, control) < 0) {
-        MP_ERR(priv, "%s: ioctl get %s failed: %s\n",
-         info.short_name, qctrl.name, strerror(errno));
+        MP_ERR(priv, "ioctl get %s failed: %s\n", qctrl.name, mp_strerror(errno));
         return TVI_CONTROL_FALSE;
     }
-    MP_VERBOSE(priv, "%s: get %s: %d [%d, %d]\n", info.short_name,
+    MP_VERBOSE(priv, "get %s: %d [%d, %d]\n",
      qctrl.name, control->value, qctrl.minimum, qctrl.maximum);
 
     if (val_signed) {
@@ -656,20 +654,18 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_GET_FPS:
         *(float *)arg = getfps(priv);
-        MP_VERBOSE(priv, "%s: get fps: %f\n", info.short_name,
-               *(float *)arg);
+        MP_VERBOSE(priv, "get fps: %f\n", *(float *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_GET_BITS:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         *(int *)arg = pixfmt2depth(priv->format.fmt.pix.pixelformat);
-        MP_VERBOSE(priv, "%s: get depth: %d\n", info.short_name,
-               *(int *)arg);
+        MP_VERBOSE(priv, "get depth: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_GET_FORMAT:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         *(int *)arg = fcc_vl2mp(priv->format.fmt.pix.pixelformat);
-        MP_VERBOSE(priv, "%s: get format: %s\n", info.short_name,
-               pixfmt2name(buf, priv->format.fmt.pix.pixelformat));
+        MP_VERBOSE(priv, "get format: %s\n",
+                   pixfmt2name(buf, priv->format.fmt.pix.pixelformat));
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_SET_FORMAT:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
@@ -677,11 +673,10 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         priv->format.fmt.pix.field = V4L2_FIELD_ANY;
 
         priv->mp_format = *(int *)arg;
-        MP_VERBOSE(priv, "%s: set format: %s\n", info.short_name,
+        MP_VERBOSE(priv, "set format: %s\n",
                pixfmt2name(buf, priv->format.fmt.pix.pixelformat));
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_FMT, &priv->format) < 0) {
-            MP_ERR(priv, "%s: ioctl set format failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set format failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         /* according to the v4l2 specs VIDIOC_S_FMT should not fail, inflexible drivers
@@ -691,8 +686,7 @@ static int do_control(priv_t *priv, int cmd, void *arg)
     case TVI_CONTROL_VID_GET_WIDTH:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         *(int *)arg = priv->format.fmt.pix.width;
-        MP_VERBOSE(priv, "%s: get width: %d\n", info.short_name,
-               *(int *)arg);
+        MP_VERBOSE(priv, "get width: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_CHK_WIDTH:
         return TVI_CONTROL_TRUE;
@@ -707,19 +701,16 @@ static int do_control(priv_t *priv, int cmd, void *arg)
     case TVI_CONTROL_VID_SET_WIDTH:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         priv->format.fmt.pix.width = *(int *)arg;
-        MP_VERBOSE(priv, "%s: set width: %d\n", info.short_name,
-               *(int *)arg);
+        MP_VERBOSE(priv, "set width: %d\n", *(int *)arg);
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_FMT, &priv->format) < 0) {
-            MP_ERR(priv, "%s: ioctl set width failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set width failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_GET_HEIGHT:
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         *(int *)arg = priv->format.fmt.pix.height;
-        MP_VERBOSE(priv, "%s: get height: %d\n", info.short_name,
-               *(int *)arg);
+        MP_VERBOSE(priv, "get height: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_VID_CHK_HEIGHT:
         return TVI_CONTROL_TRUE;
@@ -727,11 +718,9 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         if (getfmt(priv) < 0) return TVI_CONTROL_FALSE;
         priv->format.fmt.pix.height = *(int *)arg;
         priv->format.fmt.pix.field = V4L2_FIELD_ANY;
-        MP_VERBOSE(priv, "%s: set height: %d\n", info.short_name,
-               *(int *)arg);
+        MP_VERBOSE(priv, "set height: %d\n", *(int *)arg);
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_FMT, &priv->format) < 0) {
-            MP_ERR(priv, "%s: ioctl set height failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set height failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
@@ -817,8 +806,7 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         frequency.tuner = 0;
         frequency.type  = V4L2_TUNER_ANALOG_TV;
         if (v4l2_ioctl(priv->video_fd, VIDIOC_G_FREQUENCY, &frequency) < 0) {
-            MP_ERR(priv, "%s: ioctl get frequency failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl get frequency failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         *(int *)arg = frequency.frequency;
@@ -832,8 +820,7 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         frequency.type  = V4L2_TUNER_ANALOG_TV;
         frequency.frequency = *(int *)arg;
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_FREQUENCY, &frequency) < 0) {
-            MP_ERR(priv, "%s: ioctl set frequency failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set frequency failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
 #if 0
@@ -842,18 +829,16 @@ static int do_control(priv_t *priv, int cmd, void *arg)
 #endif
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_TUN_GET_TUNER:
-        MP_VERBOSE(priv, "%s: get tuner\n",info.short_name);
+        MP_VERBOSE(priv, "get tuner\n");
         if (v4l2_ioctl(priv->video_fd, VIDIOC_G_TUNER, &priv->tuner) < 0) {
-            MP_ERR(priv, "%s: ioctl get tuner failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl get tuner failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_TUN_SET_TUNER:
-        MP_VERBOSE(priv, "%s: set tuner\n",info.short_name);
+        MP_VERBOSE(priv, "set tuner\n");
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_TUNER, &priv->tuner) < 0) {
-            MP_ERR(priv, "%s: ioctl set tuner failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set tuner failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
@@ -862,8 +847,7 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_TUN_GET_SIGNAL:
         if (v4l2_ioctl(priv->video_fd, VIDIOC_G_TUNER, &priv->tuner) < 0) {
-            MP_ERR(priv, "%s: ioctl get tuner failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl get tuner failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         *(int*)arg=100*(priv->tuner.signal>>8)/255;
@@ -871,14 +855,12 @@ static int do_control(priv_t *priv, int cmd, void *arg)
     case TVI_CONTROL_TUN_SET_NORM:
         priv->standard.index = *(int *)arg;
         if (v4l2_ioctl(priv->video_fd, VIDIOC_ENUMSTD, &priv->standard) < 0) {
-            MP_ERR(priv, "%s: ioctl enum norm failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl enum norm failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
-        MP_VERBOSE(priv, "%s: set norm: %s\n", info.short_name, priv->standard.name);
+        MP_VERBOSE(priv, "set norm: %s\n", priv->standard.name);
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_STD, &priv->standard.id) < 0) {
-            MP_ERR(priv, "%s: ioctl set norm failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set norm failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
@@ -900,22 +882,19 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         }
     case TVI_CONTROL_SPC_GET_INPUT:
         if (v4l2_ioctl(priv->video_fd, VIDIOC_G_INPUT, (int *)arg) < 0) {
-            MP_ERR(priv, "%s: ioctl get input failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl get input failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_SPC_SET_INPUT:
-        MP_VERBOSE(priv, "%s: set input: %d\n", info.short_name, *(int *)arg);
+        MP_VERBOSE(priv, "set input: %d\n", *(int *)arg);
         priv->input.index = *(int *)arg;
         if (v4l2_ioctl(priv->video_fd, VIDIOC_ENUMINPUT, &priv->input) < 0) {
-            MP_ERR(priv, "%s: ioctl enum input failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl enum input failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         if (v4l2_ioctl(priv->video_fd, VIDIOC_S_INPUT, (int *)arg) < 0) {
-            MP_ERR(priv, "%s: ioctl set input failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl set input failed: %s\n", mp_strerror(errno));
             return TVI_CONTROL_FALSE;
         }
         return TVI_CONTROL_TRUE;
@@ -923,32 +902,28 @@ static int do_control(priv_t *priv, int cmd, void *arg)
         init_audio(priv);
         if (!priv->audio_initialized) return TVI_CONTROL_FALSE;
         *(int *)arg = AF_FORMAT_S16;
-        MP_VERBOSE(priv, "%s: get audio format: %d\n",
-               info.short_name, *(int *)arg);
+        MP_VERBOSE(priv, "get audio format: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_AUD_GET_SAMPLERATE:
         init_audio(priv);
         if (!priv->audio_initialized) return TVI_CONTROL_FALSE;
         *(int *)arg = priv->audio_in.samplerate;
-        MP_VERBOSE(priv, "%s: get audio samplerate: %d\n",
-               info.short_name, *(int *)arg);
+        MP_VERBOSE(priv, "get audio samplerate: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_AUD_GET_CHANNELS:
         init_audio(priv);
         if (!priv->audio_initialized) return TVI_CONTROL_FALSE;
         *(int *)arg = priv->audio_in.channels;
-        MP_VERBOSE(priv, "%s: get audio channels: %d\n",
-               info.short_name, *(int *)arg);
+        MP_VERBOSE(priv, "get audio channels: %d\n", *(int *)arg);
         return TVI_CONTROL_TRUE;
     case TVI_CONTROL_AUD_SET_SAMPLERATE:
         init_audio(priv);
-        MP_VERBOSE(priv, "%s: set audio samplerate: %d\n",
-               info.short_name, *(int *)arg);
+        MP_VERBOSE(priv, "set audio samplerate: %d\n", *(int *)arg);
         if (audio_in_set_samplerate(&priv->audio_in, *(int*)arg) < 0) return TVI_CONTROL_FALSE;
 //        setup_audio_buffer_sizes(priv);
         return TVI_CONTROL_TRUE;
     }
-    MP_VERBOSE(priv, "%s: unknown control: %d\n", info.short_name, cmd);
+    MP_VERBOSE(priv, "unknown control: %d\n", cmd);
     return TVI_CONTROL_UNKNOWN;
 }
 
@@ -999,31 +974,28 @@ static int uninit(priv_t *priv)
     pthread_mutex_destroy(&priv->video_buffer_mutex);
 
     if (priv->streamon) {
-        struct v4l2_buffer buf;
-
         /* get performance */
         frames = 1 + lrintf((double)(priv->curr_frame - priv->first_frame) / 1e6 * getfps(priv));
         dropped = frames - priv->frames;
 
         /* turn off streaming */
         if (v4l2_ioctl(priv->video_fd, VIDIOC_STREAMOFF, &(priv->map[0].buf.type)) < 0) {
-            MP_ERR(priv, "%s: ioctl streamoff failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl streamoff failed: %s\n", mp_strerror(errno));
         }
         priv->streamon = 0;
 
-        /* unqueue all remaining buffers */
-        memset(&buf,0,sizeof(buf));
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_MMAP;
-        while (!v4l2_ioctl(priv->video_fd, VIDIOC_DQBUF, &buf));
+        /* unqueue all remaining buffers (not sure if this code is correct) */
+        for (i = 0; i < priv->mapcount; i++) {
+            if (v4l2_ioctl(priv->video_fd, VIDIOC_DQBUF, &priv->map[i].buf) < 0) {
+                MP_ERR(priv, "VIDIOC_DQBUF failed: %s\n", mp_strerror(errno));
+            }
+        }
     }
 
     /* unmap all buffers */
     for (i = 0; i < priv->mapcount; i++) {
         if (v4l2_munmap(priv->map[i].addr, priv->map[i].len) < 0) {
-            MP_ERR(priv, "%s: munmap capture buffer failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "munmap capture buffer failed: %s\n", mp_strerror(errno));
         }
     }
 
@@ -1037,10 +1009,15 @@ static int uninit(priv_t *priv)
     set_mute(priv, 1);
 
     /* free memory and close device */
-    free(priv->map);                priv->map = NULL;
+    free(priv->map);
+    priv->map = NULL;
     priv->mapcount = 0;
-    if(priv->video_fd!=-1)v4l2_close(priv->video_fd);        priv->video_fd  = -1;
-    free(priv->video_dev);        priv->video_dev = NULL;
+    if (priv->video_fd != -1) {
+        v4l2_close(priv->video_fd);
+        priv->video_fd = -1;
+    }
+    free(priv->video_dev);
+    priv->video_dev = NULL;
 
     if (priv->video_ringbuffer) {
         for (int n = 0; n < priv->video_buffer_size_current; n++) {
@@ -1057,10 +1034,10 @@ static int uninit(priv_t *priv)
     }
 
     /* show some nice statistics ;-) */
-    MP_INFO(priv, "%s: %d frames successfully processed, %d frames dropped.\n",
-           info.short_name, priv->frames, dropped);
-    MP_VERBOSE(priv, "%s: up to %u video frames buffered.\n",
-           info.short_name, priv->video_buffer_size_current);
+    MP_INFO(priv, "%d frames successfully processed, %d frames dropped.\n",
+            priv->frames, dropped);
+    MP_VERBOSE(priv, "up to %u video frames buffered.\n",
+               priv->video_buffer_size_current);
     return 1;
 }
 
@@ -1079,21 +1056,18 @@ static int init(priv_t *priv)
     /* Open the video device. */
     priv->video_fd = v4l2_open(priv->video_dev, O_RDWR);
     if (priv->video_fd < 0) {
-        MP_ERR(priv, "%s: unable to open '%s': %s\n",
-               info.short_name, priv->video_dev, strerror(errno));
+        MP_ERR(priv, "unable to open '%s': %s\n", priv->video_dev, mp_strerror(errno));
         uninit(priv);
         return 0;
     }
-    MP_DBG(priv, "%s: video fd: %s: %d\n",
-           info.short_name, priv->video_dev, priv->video_fd);
+    MP_DBG(priv, "video fd: %s: %d\n", priv->video_dev, priv->video_fd);
 
     /*
     ** Query the video capabilities and current settings
     ** for further control calls.
     */
     if (v4l2_ioctl(priv->video_fd, VIDIOC_QUERYCAP, &priv->capability) < 0) {
-        MP_ERR(priv, "%s: ioctl query capabilities failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl query capabilities failed: %s\n", mp_strerror(errno));
         uninit(priv);
         return 0;
     }
@@ -1116,8 +1090,7 @@ static int init(priv_t *priv)
     */
     if (priv->capability.capabilities & V4L2_CAP_TUNER) {
         if (v4l2_ioctl(priv->video_fd, VIDIOC_G_TUNER, &priv->tuner) < 0) {
-            MP_ERR(priv, "%s: ioctl get tuner failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl get tuner failed: %s\n", mp_strerror(errno));
             uninit(priv);
             return 0;
         }
@@ -1178,8 +1151,7 @@ static int init(priv_t *priv)
     }
     i = -1;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_G_INPUT, &i) < 0) {
-        MP_ERR(priv, "%s: ioctl get input failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl get input failed: %s\n", mp_strerror(errno));
     }
     char buf[80];
     MP_INFO(priv, "\n Current input: %d\n", i);
@@ -1203,8 +1175,7 @@ static int init(priv_t *priv)
     priv->format.fmt.pix.width  = 640;
     priv->format.fmt.pix.height = 480;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_S_FMT, &priv->format) < 0) {
-        MP_ERR(priv, "%s: ioctl set format failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl set format failed: %s\n", mp_strerror(errno));
         uninit(priv);
         return 0;
     }
@@ -1214,15 +1185,14 @@ static int init(priv_t *priv)
     if (priv->capability.capabilities & V4L2_CAP_TUNER) {
         struct v4l2_control control;
         if (priv->tv_param->amode >= 0) {
-            MP_VERBOSE(priv, "%s: setting audio mode\n", info.short_name);
+            MP_VERBOSE(priv, "setting audio mode\n");
             priv->tuner.audmode = amode2v4l(priv->tv_param->amode);
             if (v4l2_ioctl(priv->video_fd, VIDIOC_S_TUNER, &priv->tuner) < 0) {
-                MP_ERR(priv, "%s: ioctl set tuner failed: %s\n",
-                       info.short_name, strerror(errno));
+                MP_ERR(priv, "ioctl set tuner failed: %s\n", mp_strerror(errno));
                 return TVI_CONTROL_FALSE;
             }
         }
-        MP_INFO(priv, "%s: current audio mode is :%s%s%s%s\n", info.short_name,
+        MP_INFO(priv, "current audio mode is :%s%s%s%s\n",
                 (priv->tuner.audmode == V4L2_TUNER_MODE_MONO)   ? " MONO"   : "",
                 (priv->tuner.audmode == V4L2_TUNER_MODE_STEREO) ? " STEREO" : "",
                 (priv->tuner.audmode == V4L2_TUNER_MODE_LANG1)  ? " LANG1"  : "",
@@ -1281,29 +1251,24 @@ static int start(priv_t *priv)
     init_audio(priv);
     if (priv->tv_param->audio && !priv->audio_initialized) return 0;
 
-    /* we need this to size the audio buffer properly */
-    if (priv->immediate_mode) {
-        priv->video_buffer_size_max = 2;
-    } else {
-        priv->video_buffer_size_max = get_capture_buffer_size(priv);
-    }
+    priv->video_buffer_size_max = get_capture_buffer_size(priv);
 
     if (priv->tv_param->audio) {
         setup_audio_buffer_sizes(priv);
         priv->audio_skew_buffer = calloc(priv->aud_skew_cnt, sizeof(long long));
         if (!priv->audio_skew_buffer) {
-            MP_ERR(priv, "cannot allocate skew buffer: %s\n", strerror(errno));
+            MP_ERR(priv, "cannot allocate skew buffer: %s\n", mp_strerror(errno));
             return 0;
         }
         priv->audio_skew_delta_buffer = calloc(priv->aud_skew_cnt, sizeof(long long));
         if (!priv->audio_skew_delta_buffer) {
-            MP_ERR(priv, "cannot allocate skew buffer: %s\n", strerror(errno));
+            MP_ERR(priv, "cannot allocate skew buffer: %s\n", mp_strerror(errno));
             return 0;
         }
 
         priv->audio_ringbuffer = calloc(priv->audio_in.blocksize, priv->audio_buffer_size);
         if (!priv->audio_ringbuffer) {
-            MP_ERR(priv, "cannot allocate audio buffer: %s\n", strerror(errno));
+            MP_ERR(priv, "cannot allocate audio buffer: %s\n", mp_strerror(errno));
             return 0;
         }
 
@@ -1347,7 +1312,7 @@ static int start(priv_t *priv)
 
     priv->video_ringbuffer = calloc(priv->video_buffer_size_max, sizeof(video_buffer_entry));
     if (!priv->video_ringbuffer) {
-        MP_ERR(priv, "cannot allocate video buffer: %s\n", strerror(errno));
+        MP_ERR(priv, "cannot allocate video buffer: %s\n", mp_strerror(errno));
         return 0;
     }
     pthread_mutex_init(&priv->video_buffer_mutex, NULL);
@@ -1357,24 +1322,18 @@ static int start(priv_t *priv)
     priv->video_cnt = 0;
 
     /* request buffers */
-    if (priv->immediate_mode) {
-        request.count = 2;
-    } else {
-        request.count = BUFFER_COUNT;
-    }
+    request.count = BUFFER_COUNT;
 
     request.type  = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     request.memory = V4L2_MEMORY_MMAP;
     if (v4l2_ioctl(priv->video_fd, VIDIOC_REQBUFS, &request) < 0) {
-        MP_ERR(priv, "%s: ioctl request buffers failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl request buffers failed: %s\n", mp_strerror(errno));
         return 0;
     }
 
     /* query buffers */
     if (!(priv->map = calloc(request.count, sizeof(struct map)))) {
-        MP_ERR(priv, "%s: malloc capture buffers failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "malloc capture buffers failed: %s\n",  mp_strerror(errno));
         return 0;
     }
 
@@ -1384,8 +1343,7 @@ static int start(priv_t *priv)
         priv->map[i].buf.type  = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         priv->map[i].buf.memory  = V4L2_MEMORY_MMAP;
         if (v4l2_ioctl(priv->video_fd, VIDIOC_QUERYBUF, &(priv->map[i].buf)) < 0) {
-            MP_ERR(priv, "%s: ioctl query buffer failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl query buffer failed: %s\n", mp_strerror(errno));
             free(priv->map);
             priv->map = NULL;
             return 0;
@@ -1393,8 +1351,7 @@ static int start(priv_t *priv)
         priv->map[i].addr = v4l2_mmap (0, priv->map[i].buf.length, PROT_READ |
                                   PROT_WRITE, MAP_SHARED, priv->video_fd, priv->map[i].buf.m.offset);
         if (priv->map[i].addr == MAP_FAILED) {
-            MP_ERR(priv, "%s: mmap capture buffer failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "mmap capture buffer failed: %s\n",  mp_strerror(errno));
             priv->map[i].len = 0;
             return 0;
         }
@@ -1406,12 +1363,11 @@ static int start(priv_t *priv)
         if (priv->map[i].buf.flags & V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC)
             MP_WARN(priv, "compiled without clock_gettime() that is needed to handle monotone video timestamps from the kernel. Expect desync.\n");
 #endif
-        /* count up to make sure this is correct everytime */
+        /* count up to make sure this is correct every time */
         priv->mapcount++;
 
         if (v4l2_ioctl(priv->video_fd, VIDIOC_QBUF, &(priv->map[i].buf)) < 0) {
-            MP_ERR(priv, "%s: ioctl queue buffer failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl queue buffer failed: %s\n", mp_strerror(errno));
             return 0;
         }
     }
@@ -1463,10 +1419,9 @@ static void *video_grabber(void *data)
     prev_interval = 0;
     prev_skew = 0;
 
-    MP_VERBOSE(priv, "%s: going to capture\n", info.short_name);
+    MP_VERBOSE(priv, "going to capture\n");
     if (v4l2_ioctl(priv->video_fd, VIDIOC_STREAMON, &(priv->format.type)) < 0) {
-        MP_ERR(priv, "%s: ioctl streamon failed: %s\n",
-               info.short_name, strerror(errno));
+        MP_ERR(priv, "ioctl streamon failed: %s\n", mp_strerror(errno));
         return 0;
     }
     priv->streamon = 1;
@@ -1479,12 +1434,10 @@ static void *video_grabber(void *data)
     {
         int ret;
 
-        if (priv->immediate_mode) {
-            while (priv->video_cnt == priv->video_buffer_size_max) {
-                usleep(10000);
-                if (priv->shutdown) {
-                    return NULL;
-                }
+        while (priv->video_cnt == priv->video_buffer_size_max) {
+            usleep(10000);
+            if (priv->shutdown) {
+                return NULL;
             }
         }
 
@@ -1496,12 +1449,11 @@ static void *video_grabber(void *data)
 
         i = select(priv->video_fd + 1, &rdset, NULL, NULL, &timeout);
         if (i < 0) {
-            MP_ERR(priv, "%s: select failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "select failed: %s\n", mp_strerror(errno));
             continue;
         }
         else if (i == 0) {
-            MP_ERR(priv, "%s: select timeout\n", info.short_name);
+            MP_ERR(priv, "select timeout\n");
             continue;
         }
         else if (!FD_ISSET(priv->video_fd, &rdset)) {
@@ -1522,8 +1474,8 @@ static void *video_grabber(void *data)
               observed with saa7134 0.2.8
               don't know if is it a bug or (mis)feature
              */
-            MP_ERR(priv, "%s: ioctl dequeue buffer failed: %s, idx = %d\n",
-                   info.short_name, strerror(errno), buf.index);
+            MP_ERR(priv, "ioctl dequeue buffer failed: %s, idx = %d\n",
+                   mp_strerror(errno), buf.index);
             for (i = 0; i < priv->mapcount; i++) {
                 memset(&buf,0,sizeof(buf));
                 buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1531,14 +1483,14 @@ static void *video_grabber(void *data)
                 buf.index = i;
                 ret = v4l2_ioctl(priv->video_fd, VIDIOC_QUERYBUF, &buf);
                 if (ret < 0) {
-                    MP_ERR(priv, "%s: ioctl query buffer failed: %s, idx = %d\n",
-                           info.short_name, strerror(errno), buf.index);
+                    MP_ERR(priv, "ioctl query buffer failed: %s, idx = %d\n",
+                           mp_strerror(errno), buf.index);
                     return 0;
                 }
                 if ((buf.flags & (V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_DONE)) == V4L2_BUF_FLAG_MAPPED) {
                     if (v4l2_ioctl(priv->video_fd, VIDIOC_QBUF, &(priv->map[i].buf)) < 0) {
-                        MP_ERR(priv, "%s: ioctl queue buffer failed: %s\n",
-                               info.short_name, strerror(errno));
+                        MP_ERR(priv, "ioctl queue buffer failed: %s\n",
+                               mp_strerror(errno));
                         return 0;
                     }
                 }
@@ -1558,19 +1510,17 @@ static void *video_grabber(void *data)
         interval = priv->curr_frame - priv->first_frame;
         delta = interval - prev_interval;
 
-        if (!priv->immediate_mode) {
-            // interpolate the skew in time
-            if (priv->tv_param->audio) pthread_mutex_lock(&priv->skew_mutex);
-            xskew = priv->audio_skew + (interval - priv->audio_skew_measure_time)*priv->audio_skew_factor;
-            if (priv->tv_param->audio) pthread_mutex_unlock(&priv->skew_mutex);
-             // correct extreme skew changes to avoid (especially) moving backwards in time
-            if (xskew - prev_skew > delta*MAX_SKEW_DELTA) {
-                skew = prev_skew + delta*MAX_SKEW_DELTA;
-            } else if (xskew - prev_skew < -delta*MAX_SKEW_DELTA) {
-                skew = prev_skew - delta*MAX_SKEW_DELTA;
-            } else {
-                skew = xskew;
-            }
+        // interpolate the skew in time
+        if (priv->tv_param->audio) pthread_mutex_lock(&priv->skew_mutex);
+        xskew = priv->audio_skew + (interval - priv->audio_skew_measure_time)*priv->audio_skew_factor;
+        if (priv->tv_param->audio) pthread_mutex_unlock(&priv->skew_mutex);
+            // correct extreme skew changes to avoid (especially) moving backwards in time
+        if (xskew - prev_skew > delta*MAX_SKEW_DELTA) {
+            skew = prev_skew + delta*MAX_SKEW_DELTA;
+        } else if (xskew - prev_skew < -delta*MAX_SKEW_DELTA) {
+            skew = prev_skew - delta*MAX_SKEW_DELTA;
+        } else {
+            skew = xskew;
         }
 
         MP_TRACE(priv, "\nfps = %f, interval = %f, a_skew = %f, corr_skew = %f\n",
@@ -1598,17 +1548,15 @@ static void *video_grabber(void *data)
         pthread_mutex_unlock(&priv->video_buffer_mutex);
 
         if (priv->video_cnt == priv->video_buffer_size_current) {
-            if (!priv->immediate_mode) {
-                MP_ERR(priv, "\nvideo buffer full - dropping frame\n");
-                if (priv->audio_insert_null_samples) {
-                    pthread_mutex_lock(&priv->audio_mutex);
-                    priv->dropped_frames_timeshift += delta;
-                    pthread_mutex_unlock(&priv->audio_mutex);
-                }
+            MP_ERR(priv, "\nvideo buffer full - dropping frame\n");
+            if (!priv->immediate_mode || priv->audio_insert_null_samples) {
+                pthread_mutex_lock(&priv->audio_mutex);
+                priv->dropped_frames_timeshift += delta;
+                pthread_mutex_unlock(&priv->audio_mutex);
             }
         } else {
             if (priv->immediate_mode) {
-                priv->video_ringbuffer[priv->video_tail].timestamp = -1;
+                priv->video_ringbuffer[priv->video_tail].timestamp = interval - skew;
             } else {
                 // compensate for audio skew
                 // negative skew => there are more audio samples, increase interval
@@ -1628,15 +1576,14 @@ static void *video_grabber(void *data)
             priv->video_cnt++;
         }
         if (v4l2_ioctl(priv->video_fd, VIDIOC_QBUF, &buf) < 0) {
-            MP_ERR(priv, "%s: ioctl queue buffer failed: %s\n",
-                   info.short_name, strerror(errno));
+            MP_ERR(priv, "ioctl queue buffer failed: %s\n", mp_strerror(errno));
             return 0;
         }
     }
     return NULL;
 }
 
-#define MAX_LOOP 50
+#define MAX_LOOP 500
 static double grab_video_frame(priv_t *priv, char *buffer, int len)
 {
     int loop_cnt = 0;
@@ -1647,7 +1594,7 @@ static double grab_video_frame(priv_t *priv, char *buffer, int len)
     }
 
     while (priv->video_cnt == 0) {
-        usleep(10000);
+        usleep(1000);
         if (loop_cnt++ > MAX_LOOP) return 0;
     }
 

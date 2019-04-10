@@ -6,8 +6,7 @@
 #include "mp_image.h"
 
 struct mp_image;
-struct mp_csp_details;
-struct sws_opts;
+struct mpv_global;
 
 // libswscale currently requires 16 bytes alignment for row pointers and
 // strides. Otherwise, it will print warnings and use slow codepaths.
@@ -19,11 +18,11 @@ extern const int mp_sws_fast_flags;
 
 bool mp_sws_supported_format(int imgfmt);
 
-void mp_image_swscale(struct mp_image *dst, struct mp_image *src,
-                      int my_sws_flags);
+int mp_image_swscale(struct mp_image *dst, struct mp_image *src,
+                     int my_sws_flags);
 
-void mp_image_sw_blur_scale(struct mp_image *dst, struct mp_image *src,
-                            float gblur);
+int mp_image_sw_blur_scale(struct mp_image *dst, struct mp_image *src,
+                           float gblur);
 
 struct mp_sws_context {
     // Can be set for verbose error printing.
@@ -45,6 +44,7 @@ struct mp_sws_context {
 
     // Cached context (if any)
     struct SwsContext *sws;
+    bool supports_csp;
 
     // Contains parameters for which sws is valid
     struct mp_sws_context *cached;
@@ -52,13 +52,11 @@ struct mp_sws_context {
 
 struct mp_sws_context *mp_sws_alloc(void *talloc_ctx);
 int mp_sws_reinit(struct mp_sws_context *ctx);
-void mp_sws_set_from_cmdline(struct mp_sws_context *ctx, struct sws_opts *opts);
+void mp_sws_set_from_cmdline(struct mp_sws_context *ctx, struct mpv_global *g);
 int mp_sws_scale(struct mp_sws_context *ctx, struct mp_image *dst,
                  struct mp_image *src);
 
-struct vf_seteq;
-int mp_sws_set_vf_equalizer(struct mp_sws_context *sws, struct vf_seteq *eq);
-int mp_sws_get_vf_equalizer(struct mp_sws_context *sws, struct vf_seteq *eq);
+struct mp_image *mp_img_swap_to_native(struct mp_image *img);
 
 #endif /* MP_SWS_UTILS_H */
 

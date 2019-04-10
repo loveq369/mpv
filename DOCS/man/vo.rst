@@ -4,29 +4,20 @@ VIDEO OUTPUT DRIVERS
 Video output drivers are interfaces to different video output facilities. The
 syntax is:
 
-``--vo=<driver1[:suboption1[=value]:...],driver2,...[,]>``
+``--vo=<driver1,driver2,...[,]>``
     Specify a priority list of video output drivers to be used.
 
-If the list has a trailing ',', mpv will fall back on drivers not contained
-in the list. Suboptions are optional and can mostly be omitted.
-
-You can also set defaults for each driver. The defaults are applied before the
-normal driver parameters.
-
-``--vo-defaults=<driver1[:parameter1:parameter2:...],driver2,...>``
-    Set defaults for each driver.
+If the list has a trailing ``,``, mpv will fall back on drivers not contained
+in the list.
 
 .. note::
 
     See ``--vo=help`` for a list of compiled-in video output drivers.
 
-    The recommended output drivers are ``--vo=vdpau`` and ``--vo=opengl-hq``.
-    All other drivers are just for compatibility or special purposes.
-
-.. admonition:: Example
-
-    ``--vo=opengl,xv,``
-        Try the ``opengl`` driver, then the ``xv`` driver, then others.
+    The recommended output driver is ``--vo=gpu``, which is the default. All
+    other drivers are for compatibility or special purposes. If the default
+    does not work, it will fallback to other drivers (in the same order as
+    listed by ``--vo=help``).
 
 Available video output drivers are:
 
@@ -37,11 +28,13 @@ Available video output drivers are:
 
     .. note:: This driver is for compatibility with old systems.
 
-    ``adaptor=<number>``
+    The following global options are supported by this video output:
+
+    ``--xv-adaptor=<number>``
         Select a specific XVideo adapter (check xvinfo results).
-    ``port=<number>``
+    ``--xv-port=<number>``
         Select a specific XVideo port.
-    ``ck=<cur|use|set>``
+    ``--xv-ck=<cur|use|set>``
         Select the source from which the color key is taken (default: cur).
 
         cur
@@ -52,9 +45,11 @@ Available video output drivers are:
         set
           Same as use but also sets the supplied color key.
 
-    ``ck-method=<man|bg|auto>``
+    ``--xv-ck-method=<none|man|bg|auto>``
         Sets the color key drawing method (default: man).
 
+        none
+          Disables color-keying.
         man
           Draw the color key manually (reduces flicker in some cases).
         bg
@@ -62,12 +57,15 @@ Available video output drivers are:
         auto
           Let Xv draw the color key.
 
-    ``colorkey=<number>``
+    ``--xv-colorkey=<number>``
         Changes the color key to an RGB value of your choice. ``0x000000`` is
         black and ``0xffffff`` is white.
 
-    ``no-colorkey``
-        Disables color-keying.
+    ``--xv-buffers=<number>``
+        Number of image buffers to use for the internal ringbuffer (default: 2).
+        Increasing this will use more memory, but might help with the X server
+        not responding quickly enough if video FPS is close to or higher than
+        the display refresh rate.
 
 ``x11`` (X11 only)
     Shared memory video output driver without hardware acceleration that works
@@ -86,23 +84,25 @@ Available video output drivers are:
         ``chroma-deint``, ``pullup``, ``hqscaling``. These sub-options are
         deprecated, and you should use the ``vdpaupp`` video filter instead.
 
-    ``sharpen=<-1-1>``
+    The following global options are supported by this video output:
+
+    ``--vo-vdpau-sharpen=<-1-1>``
         (Deprecated. See note about ``vdpaupp``.)
 
         For positive values, apply a sharpening algorithm to the video, for
         negative values a blurring algorithm (default: 0).
-    ``denoise=<0-1>``
+    ``--vo-vdpau-denoise=<0-1>``
         (Deprecated. See note about ``vdpaupp``.)
 
         Apply a noise reduction algorithm to the video (default: 0; no noise
         reduction).
-    ``deint=<-4-4>``
+    ``--vo-vdpau-deint=<-4-4>``
         (Deprecated. See note about ``vdpaupp``.)
 
         Select deinterlacing mode (default: 0). In older versions (as well as
         MPlayer/mplayer2) you could use this option to enable deinterlacing.
         This doesn't work anymore, and deinterlacing is enabled with either
-        the ``D`` key (by default mapped to the command ``cycle deinterlace``),
+        the ``d`` key (by default mapped to the command ``cycle deinterlace``),
         or the ``--deinterlace`` option. Also, to select the default deint mode,
         you should use something like ``--vf-defaults=vdpaupp:deint-mode=temporal``
         instead of this sub-option.
@@ -119,32 +119,32 @@ Available video output drivers are:
         4
             Motion-adaptive temporal deinterlacing with edge-guided spatial
             interpolation. Needs fast video hardware.
-    ``chroma-deint``
+    ``--vo-vdpau-chroma-deint``
         (Deprecated. See note about ``vdpaupp``.)
 
         Makes temporal deinterlacers operate both on luma and chroma (default).
         Use no-chroma-deint to solely use luma and speed up advanced
         deinterlacing. Useful with slow video memory.
-    ``pullup``
+    ``--vo-vdpau-pullup``
         (Deprecated. See note about ``vdpaupp``.)
 
         Try to apply inverse telecine, needs motion adaptive temporal
         deinterlacing.
-    ``hqscaling=<0-9>``
+    ``--vo-vdpau-hqscaling=<0-9>``
         (Deprecated. See note about ``vdpaupp``.)
 
         0
             Use default VDPAU scaling (default).
         1-9
             Apply high quality VDPAU scaling (needs capable hardware).
-    ``fps=<number>``
+    ``--vo-vdpau-fps=<number>``
         Override autodetected display refresh rate value (the value is needed
         for framedrop to allow video playback rates higher than display
         refresh rate, and for vsync-aware frame timing adjustments). Default 0
         means use autodetected value. A positive value is interpreted as a
         refresh rate in Hz and overrides the autodetected value. A negative
         value disables all timing adjustment and framedrop logic.
-    ``composite-detect``
+    ``--vo-vdpau-composite-detect``
         NVIDIA's current VDPAU implementation behaves somewhat differently
         under a compositing window manager and does not give accurate frame
         timing information. With this option enabled, the player tries to
@@ -154,21 +154,21 @@ Available video output drivers are:
         means timing is somewhat less accurate than without compositing, but
         with the composited mode behavior of the NVIDIA driver, there is no
         hard playback speed limit even without the disabled logic. Enabled by
-        default, use ``no-composite-detect`` to disable.
-    ``queuetime_windowed=<number>`` and ``queuetime_fs=<number>``
+        default, use ``--vo-vdpau-composite-detect=no`` to disable.
+    ``--vo-vdpau-queuetime-windowed=<number>`` and ``queuetime-fs=<number>``
         Use VDPAU's presentation queue functionality to queue future video
         frame changes at most this many milliseconds in advance (default: 50).
         See below for additional information.
-    ``output_surfaces=<2-15>``
+    ``--vo-vdpau-output-surfaces=<2-15>``
         Allocate this many output surfaces to display video frames (default:
         3). See below for additional information.
-    ``colorkey=<#RRGGBB|#AARRGGBB>``
+    ``--vo-vdpau-colorkey=<#RRGGBB|#AARRGGBB>``
         Set the VDPAU presentation queue background color, which in practice
         is the colorkey used if VDPAU operates in overlay mode (default:
         ``#020507``, some shade of black). If the alpha component of this value
         is 0, the default VDPAU colorkey will be used instead (which is usually
         green).
-    ``force-yuv``
+    ``--vo-vdpau-force-yuv``
         Never accept RGBA input. This means mpv will insert a filter to convert
         to a YUV format before the VO. Sometimes useful to force availability
         of certain YUV-only features, like video equalizer or deinterlacing.
@@ -195,31 +195,40 @@ Available video output drivers are:
     driver implementation may also have limits on the length of maximum
     queuing time or number of queued surfaces that work well or at all.
 
-``direct3d_shaders`` (Windows only)
+``direct3d`` (Windows only)
     Video output driver that uses the Direct3D interface.
 
     .. note:: This driver is for compatibility with systems that don't provide
-              proper OpenGL drivers.
+              proper OpenGL drivers, and where ANGLE does not perform well.
 
-    ``prefer-stretchrect``
+    .. note:: Before to 0.21.0, ``direct3d_shaders`` and ``direct3d`` were
+              different, with ``direct3d`` not using shader by default. Now
+              both use shaders by default, and ``direct3d_shaders`` is a
+              deprecated alias. Use the ``--vo-direct3d-prefer-stretchrect``
+              or the ``--vo-direct3d-disable-shaders`` options to get the old
+              behavior of ``direct3d``.
+
+    The following global options are supported by this video output:
+
+    ``--vo-direct3d-prefer-stretchrect``
         Use ``IDirect3DDevice9::StretchRect`` over other methods if possible.
 
-    ``disable-stretchrect``
+    ``--vo-direct3d-disable-stretchrect``
         Never render the video using ``IDirect3DDevice9::StretchRect``.
 
-    ``disable-textures``
+    ``--vo-direct3d-disable-textures``
         Never render the video using D3D texture rendering. Rendering with
         textures + shader will still be allowed. Add ``disable-shaders`` to
         completely disable video rendering with textures.
 
-    ``disable-shaders``
+    ``--vo-direct3d-disable-shaders``
         Never use shaders when rendering video.
 
-    ``only-8bit``
+    ``--vo-direct3d-only-8bit``
         Never render YUV video with more than 8 bits per component.
         Using this flag will force software conversion to 8-bit.
 
-    ``disable-texture-align``
+    ``--vo-direct3d-disable-texture-align``
         Normally texture sizes are always aligned to 16. With this option
         enabled, the video texture will always have exactly the same size as
         the video itself.
@@ -229,560 +238,69 @@ Available video output drivers are:
     might crash, might cause slow downs, etc. Contact the developers if you
     actually need any of these for performance or proper operation.
 
-    ``force-power-of-2``
+    ``--vo-direct3d-force-power-of-2``
         Always force textures to power of 2, even if the device reports
         non-power-of-2 texture sizes as supported.
 
-    ``texture-memory=N``
+    ``--vo-direct3d-texture-memory=<mode>``
         Only affects operation with shaders/texturing enabled, and (E)OSD.
-        Values for N:
+        Possible values:
 
-            0
-                default, will often use an additional shadow texture + copy
-            1
-                use ``D3DPOOL_MANAGED``
-            2
-                use ``D3DPOOL_DEFAULT``
-            3
-                use ``D3DPOOL_SYSTEMMEM``, but without shadow texture
+        ``default`` (default)
+            Use ``D3DPOOL_DEFAULT``, with a ``D3DPOOL_SYSTEMMEM`` texture for
+            locking. If the driver supports ``D3DDEVCAPS_TEXTURESYSTEMMEMORY``,
+            ``D3DPOOL_SYSTEMMEM`` is used directly.
 
-    ``swap-discard``
+        ``default-pool``
+            Use ``D3DPOOL_DEFAULT``. (Like ``default``, but never use a
+            shadow-texture.)
+
+        ``default-pool-shadow``
+            Use ``D3DPOOL_DEFAULT``, with a ``D3DPOOL_SYSTEMMEM`` texture for
+            locking. (Like ``default``, but always force the shadow-texture.)
+
+        ``managed``
+            Use ``D3DPOOL_MANAGED``.
+
+        ``scratch``
+            Use ``D3DPOOL_SCRATCH``, with a ``D3DPOOL_SYSTEMMEM`` texture for
+            locking.
+
+    ``--vo-direct3d-swap-discard``
         Use ``D3DSWAPEFFECT_DISCARD``, which might be faster.
         Might be slower too, as it must(?) clear every frame.
 
-    ``exact-backbuffer``
+    ``--vo-direct3d-exact-backbuffer``
         Always resize the backbuffer to window size.
 
-``direct3d`` (Windows only)
-    Same as ``direct3d_shaders``, but with the options ``disable-textures``
-    and ``disable-shaders`` forced.
+``gpu``
+    General purpose, customizable, GPU-accelerated video output driver. It
+    supports extended scaling methods, dithering, color management, custom
+    shaders, HDR, and more.
 
-    .. note:: This driver is for compatibility with old systems.
+    See `GPU renderer options`_ for options specific to this VO.
 
-``opengl``
-    OpenGL video output driver. It supports extended scaling methods, dithering
-    and color management.
+    By default, it tries to use fast and fail-safe settings. Use the
+    ``gpu-hq`` profile to use this driver with defaults set to high quality
+    rendering. The profile can be applied with ``--profile=gpu-hq`` and its
+    contents can be viewed with ``--show-profile=gpu-hq``.
 
-    By default, it tries to use fast and fail-safe settings. Use the alias
-    ``opengl-hq`` to use this driver with defaults set to high quality
-    rendering.
-
-    Requires at least OpenGL 2.1 and the ``GL_ARB_texture_rg`` extension. For
-    older drivers, ``opengl-old`` may work.
-
-    Some features are available with OpenGL 3 capable graphics drivers only
-    (or if the necessary extensions are available).
+    This VO abstracts over several possible graphics APIs and windowing
+    contexts, which can be influenced using the ``--gpu-api`` and
+    ``--gpu-context`` options.
 
     Hardware decoding over OpenGL-interop is supported to some degree. Note
     that in this mode, some corner case might not be gracefully handled, and
     color space conversion and chroma upsampling is generally in the hand of
     the hardware decoder APIs.
 
-    ``lscale=<filter>``
-
-        ``bilinear``
-            Bilinear hardware texture filtering (fastest, mid-quality).
-            This is the default.
-
-        ``lanczos2``
-            Lanczos scaling with radius=2. Provides good quality and speed.
-
-        ``lanczos3``
-            Lanczos with radius=3.
-
-        ``lanczos``
-            Generic Lanczos scaling filter. Set radius with ``lradius``.
-
-        ``spline36``
-            This is the default when using ``opengl-hq``.
-
-        ``bicubic_fast``
-            Bicubic filter. Has a blurring effect on the image, even if no
-            scaling is done.
-
-        ``sharpen3``
-            Unsharp masking (sharpening) with radius=3 and a default strength
-            of 0.5 (see ``lparam1``).
-
-        ``sharpen5``
-            Unsharp masking (sharpening) with radius=5 and a default strength
-            of 0.5 (see ``lparam1``).
-
-        ``mitchell``
-            Mitchell-Netravali. The ``b`` and ``c`` parameters can be set with
-            ``lparam1`` and ``lparam2``. Both are set to 1/3 by default.
-
-        ``gaussian``
-            Gaussian filter with a parameter ``p`` for sharpness control.
-            ``p`` can be set to float number between 1(blurry) and 100(sharp)
-            and has a default value of about 28.8 (see ``lparam1``).
-
-            Note that for extremely small value of ``p``, a large filter radius
-            might be required to avoid unintended artifacts (see ``lradius``).
-
-
-        There are some more filters. For a complete list, pass ``help`` as
-        value, e.g.::
-
-            mpv --vo=opengl:lscale=help
-
-    ``lparam1=<value>``
-        Set filter parameters. Ignored if the filter is not tunable. These are
-        unset by default, and use the filter specific default if applicable.
-
-    ``lparam2=<value>``
-        See ``lparam1``.
-
-    ``lradius=<r>``
-        Set radius for filters listed below, must be a float number between 1.0
-        and 8.0. Defaults to be 2.0 if not specified.
-
-            ``sinc``, ``lanczos``, ``blackman``, ``gaussian``
-
-        Note that depending on filter implementation details and video scaling
-        ratio, the radius that actually being used might be different
-        (most likely being increased a bit).
-
-    ``scaler-resizes-only``
-        Disable the scaler if the video image is not resized. In that case,
-        ``bilinear`` is used instead whatever is set with ``lscale``. Bilinear
-        will reproduce the source image perfectly if no scaling is performed.
-        Note that this option never affects ``cscale``, although the different
-        processing chain might do chroma scaling differently if ``lscale`` is
-        disabled.
-
-    ``stereo=<value>``
-        Select a method for stereo display. You may have to use
-        ``--video-aspect`` to fix the aspect value. Experimental, do not expect
-        too much from it.
-
-        no
-            Normal 2D display
-        red-cyan
-            Convert side by side input to full-color red-cyan stereo.
-        green-magenta
-            Convert side by side input to full-color green-magenta stereo.
-        quadbuffer
-            Convert side by side input to quad buffered stereo. Only supported
-            by very few OpenGL cards.
-
-    ``srgb``
-        Convert and color correct the output to sRGB before displaying it on
-        the screen. This option enables linear light scaling. It also forces
-        the options ``indirect`` and ``gamma``.
-
-        This option is equivalent to using ``icc-profile`` with an sRGB ICC
-        profile, but it is implemented without a 3DLUT and does not require
-        LittleCMS 2. If both ``srgb`` and ``icc-profile`` are present, the
-        latter takes precedence, as they are somewhat redundant.
-
-        Note: When playing back BT.2020 content with this option enabled, out
-        of gamut colors will be numerically clipped, which can potentially
-        change the hue and/or luminance. If this is not desired, it is
-        recommended to use ``icc-profile`` with an sRGB ICC profile instead,
-        when playing back wide-gamut BT.2020 content.
-
-    ``pbo``
-        Enable use of PBOs. This is slightly faster, but can sometimes lead to
-        sporadic and temporary image corruption (in theory, because reupload
-        is not retried when it fails), and perhaps actually triggers slower
-        paths with drivers that don't support PBOs properly.
-
-    ``dither-depth=<N|no|auto>``
-        Set dither target depth to N. Default: no.
-
-        no
-            Disable any dithering done by mpv.
-        auto
-            Automatic selection. If output bit depth cannot be detected,
-            8 bits per component are assumed.
-        8
-            Dither to 8 bit output.
-
-        Note that the depth of the connected video display device can not be
-        detected. Often, LCD panels will do dithering on their own, which
-        conflicts with ``opengl``'s dithering and leads to ugly output.
-
-    ``dither-size-fruit=<2-8>``
-        Set the size of the dither matrix (default: 6). The actual size of
-        the matrix is ``(2^N) x (2^N)`` for an option value of ``N``, so a
-        value of 6 gives a size of 64x64. The matrix is generated at startup
-        time, and a large matrix can take rather long to compute (seconds).
-
-        Used in ``dither=fruit`` mode only.
-
-    ``dither=<fruit|ordered|no>``
-        Select dithering algorithm (default: fruit).
-
-    ``temporal-dither``
-        Enable temporal dithering. (Only active if dithering is enabled in
-        general.) This changes between 8 different dithering pattern on each
-        frame by changing the orientation of the tiled dithering matrix.
-        Unfortunately, this can lead to flicker on LCD displays, since these
-        have a high reaction time.
-
-    ``debug``
-        Check for OpenGL errors, i.e. call ``glGetError()``. Also request a
-        debug OpenGL context (which does nothing with current graphics drivers
-        as of this writing).
-
-    ``swapinterval=<n>``
-        Interval in displayed frames between two buffer swaps.
-        1 is equivalent to enable VSYNC, 0 to disable VSYNC.
-
-    ``no-scale-sep``
-        When using a separable scale filter for luma, usually two filter
-        passes are done. This is often faster. However, it forces
-        conversion to RGB in an extra pass, so it can actually be slower
-        if used with fast filters on small screen resolutions. Using
-        this options will make rendering a single operation.
-        Note that chroma scalers are always done as 1-pass filters.
-
-    ``cscale=<n>``
-        As ``lscale``, but for chroma (2x slower with little visible effect).
-        Note that with some scaling filters, upscaling is always done in
-        RGB. If chroma is not subsampled, this option is ignored, and the
-        luma scaler is used instead. Setting this option is often useless.
-
-    ``cparam1``, ``cparam2``, ``cradius``
-        Set filter parameters and radius for ``cscale``.
-
-        See ``lparam1``, ``lparam2`` and ``lradius``.
-
-    ``fancy-downscaling``
-        When using convolution based filters, extend the filter size
-        when downscaling. Trades quality for reduced downscaling performance.
-
-    ``no-npot``
-        Force use of power-of-2 texture sizes. For debugging only.
-        Borders will be distorted due to filtering.
-
-    ``glfinish``
-        Call ``glFinish()`` before and after swapping buffers (default: disabled).
-        Slower, but might help getting better results when doing framedropping.
-        The details depend entirely on the OpenGL driver.
-
-    ``waitvsync``
-        Call ``glXWaitVideoSyncSGI`` after each buffer swap (default: disabled).
-        This may or may not help with video timing accuracy and frame drop. It's
-        possible that this makes video output slower, or has no effect at all.
-
-        X11 only.
-
-    ``sw``
-        Continue even if a software renderer is detected.
-
-    ``backend=<sys>``
-        The value ``auto`` (the default) selects the windowing backend. You
-        can also pass ``help`` to get a complete list of compiled in backends
-        (sorted by autoprobe order).
-
-        auto
-            auto-select (default)
-        cocoa
-            Cocoa/OS X
-        win
-            Win32/WGL
-        x11
-            X11/GLX
-        wayland
-            Wayland/EGL
-
-    ``indirect``
-        Do YUV conversion and scaling as separate passes. This will first render
-        the video into a video-sized RGB texture, and draw the result on screen.
-        The luma scaler is used to scale the RGB image when rendering to screen.
-        The chroma scaler is used only on YUV conversion, and only if the video
-        is chroma-subsampled (usually the case).
-        This mechanism is disabled on RGB input.
-        Specifying this option directly is generally useful for debugging only.
-
-    ``fbo-format=<fmt>``
-        Selects the internal format of textures used for FBOs. The format can
-        influence performance and quality of the video output. (FBOs are not
-        always used, and typically only when using extended scalers.)
-        ``fmt`` can be one of: rgb, rgba, rgb8, rgb10, rgb10_a2, rgb16, rgb16f,
-        rgb32f, rgba12, rgba16, rgba16f, rgba32f.
-        Default: rgb.
-
-    ``gamma=<0.0..10.0>``
-        Set a gamma value. If gamma is adjusted in other ways (like with
-        the ``--gamma`` option or key bindings and the ``gamma`` property), the
-        value is multiplied with the other gamma value.
-
-        Setting this value to 1.0 can be used to always enable gamma control.
-        (Disables delayed enabling.)
-
-    ``icc-profile=<file>``
-        Load an ICC profile and use it to transform linear RGB to screen output.
-        Needs LittleCMS 2 support compiled in. This option overrides the ``srgb``
-        property, as using both is somewhat redundant. It also enables linear
-        light scaling.
-
-
-    ``icc-profile-auto``
-        Automatically select the ICC display profile currently specified by
-        the display settings of the operating system.
-
-        NOTE: Only implemented on OS X with Cocoa.
-
-    ``icc-cache=<file>``
-        Store and load the 3D LUT created from the ICC profile in this file.
-        This can be used to speed up loading, since LittleCMS 2 can take a while
-        to create the 3D LUT. Note that this file contains an uncompressed LUT.
-        Its size depends on the ``3dlut-size``, and can be very big.
-
-    ``icc-intent=<value>``
-        Specifies the ICC Intent used for transformations between color spaces.
-        This affects the rendering when using ``icc-profile`` or ``srgb`` and
-        also affects the way DCP XYZ content gets converted to RGB.
-
-        0
-            perceptual
-        1
-            relative colorimetric (default)
-        2
-            saturation
-        3
-            absolute colorimetric
-
-    ``approx-gamma``
-        Approximate the actual gamma function as a pure power curve of
-        1.95. A number of video editing programs and studios apparently use this
-        for mastering instead of the true curve. Most notably, anything in the
-        Apple ecosystem uses this approximation - including all programs
-        compatible with it. It's a sound idea to try enabling this flag first
-        when watching videos and shows to see if things look better that way.
-
-        This only affects the output when using either ``icc-profile`` or ``srgb``.
-
-    ``3dlut-size=<r>x<g>x<b>``
-        Size of the 3D LUT generated from the ICC profile in each dimension.
-        Default is 128x256x64.
-        Sizes must be a power of two, and 512 at most.
-
-    ``alpha=<blend|yes|no>``
-        Decides what to do if the input has an alpha component (default: blend).
-
-        blend
-            Blend the frame against a black background.
-        yes
-            Try to create a framebuffer with alpha component. This only makes sense
-            if the video contains alpha information (which is extremely rare). May
-            not be supported on all platforms. If alpha framebuffers are
-            unavailable, it silently falls back on a normal framebuffer. Note
-            that when using FBO indirections (such as with ``opengl-hq``), an FBO
-            format with alpha must be specified with the ``fbo-format`` option.
-        no
-            Ignore alpha component.
-
-    ``chroma-location=<auto|center|left>``
-        Set the YUV chroma sample location. auto means use the bitstream
-        flags (default: auto).
-
-    ``rectangle-textures``
-        Force use of rectangle textures (default: no). Normally this shouldn't
-        have any advantages over normal textures. Note that hardware decoding
-        overrides this flag.
-
-``opengl-hq``
-    Same as ``opengl``, but with default settings for high quality rendering.
-
-    This is equivalent to::
-
-        --vo=opengl:lscale=spline36:dither-depth=auto:fbo-format=rgba16
-
-    Note that some cheaper LCDs do dithering that gravely interferes with
-    ``opengl``'s dithering. Disabling dithering with ``dither-depth=no`` helps.
-
-    Unlike ``opengl``, ``opengl-hq`` makes use of FBOs by default. Sometimes you
-    can achieve better quality or performance by changing the ``fbo-format``
-    suboption to ``rgb16f``, ``rgb32f`` or ``rgb``. Known problems include
-    Mesa/Intel not accepting ``rgb16``, Mesa sometimes not being compiled with
-    float texture support, and some OS X setups being very slow with ``rgb16``
-    but fast with ``rgb32f``.
-
-``opengl-old``
-    OpenGL video output driver, old version. Video size must be smaller
-    than the maximum texture size of your OpenGL implementation. Intended to
-    work even with the most basic OpenGL implementations, but also makes use
-    of newer extensions which allow support for more color spaces.
-
-    The code performs very few checks, so if a feature does not work, this
-    might be because it is not supported by your card and/or OpenGL
-    implementation, even if you do not get any error message. Use ``glxinfo``
-    or a similar tool to display the supported OpenGL extensions.
-
-    .. note:: This driver is for compatibility with old systems.
-
-    ``(no-)ati-hack``
-        ATI drivers may give a corrupted image when PBOs are used (when using
-        ``force-pbo``). This option fixes this, at the expense of using a bit
-        more memory.
-    ``(no-)force-pbo``
-        Always uses PBOs to transfer textures even if this involves an extra
-        copy. Currently this gives a little extra speed with NVIDIA drivers
-        and a lot more speed with ATI drivers. May need the ``ati-hack``
-        suboption to work correctly.
-    ``(no-)scaled-osd``
-        Scales the OSD and subtitles instead of rendering them at display size
-        (default: disabled).
-    ``rectangle=<0,1,2>``
-        Select usage of rectangular textures, which saves video RAM, but often
-        is slower (default: 0).
-
-        0
-            Use power-of-two textures (default).
-        1
-            Use the ``GL_ARB_texture_rectangle`` extension.
-        2
-            Use the ``GL_ARB_texture_non_power_of_two`` extension. In some
-            cases only supported in software and thus very slow.
-
-    ``swapinterval=<n>``
-        Minimum interval between two buffer swaps, counted in displayed frames
-        (default: 1). 1 is equivalent to enabling VSYNC, 0 to disabling VSYNC.
-        Values below 0 will leave it at the system default. This limits the
-        framerate to (horizontal refresh rate / n). Requires
-        ``GLX_SGI_swap_control`` support to work. With some (most/all?)
-        implementations this only works in fullscreen mode.
-    ``ycbcr``
-        Use the ``GL_MESA_ycbcr_texture`` extension to convert YUV to RGB. In
-        most cases this is probably slower than doing software conversion to
-        RGB.
-    ``yuv=<n>``
-        Select the type of YUV to RGB conversion. The default is
-        auto-detection deciding between values 0 and 2.
-
-        0
-            Use software conversion. Compatible with all OpenGL versions.
-            Provides brightness, contrast and saturation control.
-        1
-            Same as 2. This used to use NVIDIA-specific extensions, which
-            did not provide any advantages over using fragment programs, except
-            possibly on very ancient graphics cards. It produced a gray-ish
-            output, which is why it has been removed.
-        2
-            Use a fragment program. Needs the ``GL_ARB_fragment_program``
-            extension and at least three texture units. Provides brightness,
-            contrast, saturation and hue control.
-        3
-            Use a fragment program using the ``POW`` instruction. Needs the
-            ``GL_ARB_fragment_program`` extension and at least three texture
-            units. Provides brightness, contrast, saturation, hue and gamma
-            control. Gamma can also be set independently for red, green and
-            blue. Method 4 is usually faster.
-        4
-            Use a fragment program with additional lookup. Needs the
-            ``GL_ARB_fragment_program`` extension and at least four texture
-            units. Provides brightness, contrast, saturation, hue and gamma
-            control. Gamma can also be set independently for red, green and
-            blue.
-        5
-            Use ATI-specific method (for older cards). This uses an
-            ATI-specific extension (``GL_ATI_fragment_shader`` - not
-            ``GL_ARB_fragment_shader``!). At least three texture units are
-            needed. Provides saturation and hue control. This method is fast
-            but inexact.
-        6
-            Use a 3D texture to do conversion via lookup. Needs the
-            ``GL_ARB_fragment_program extension`` and at least four texture
-            units. Extremely slow (software emulation) on some (all?) ATI
-            cards since it uses a texture with border pixels. Provides
-            brightness, contrast, saturation, hue and gamma control. Gamma can
-            also be set independently for red, green and blue. Speed depends
-            more on GPU memory bandwidth than other methods.
-
-    ``lscale=<n>``
-        Select the scaling function to use for luminance scaling. Only valid
-        for yuv modes 2, 3, 4 and 6.
-
-        0
-            Use simple linear filtering (default).
-        1
-            Use bicubic B-spline filtering (better quality). Needs one
-            additional texture unit. Older cards will not be able to handle
-            this for chroma at least in fullscreen mode.
-        2
-            Use cubic filtering in horizontal, linear filtering in vertical
-            direction. Works on a few more cards than method 1.
-        3
-            Same as 1 but does not use a lookup texture. Might be faster on
-            some cards.
-        4
-            Use experimental unsharp masking with 3x3 support and a default
-            strength of 0.5 (see ``filter-strength``).
-        5
-            Use experimental unsharp masking with 5x5 support and a default
-            strength of 0.5 (see ``filter-strength``).
-
-    ``cscale=<n>``
-        Select the scaling function to use for chrominance scaling. For
-        details see ``lscale``.
-    ``filter-strength=<value>``
-        Set the effect strength for the ``lscale``/``cscale`` filters that
-        support it.
-    ``stereo=<value>``
-        Select a method for stereo display. You may have to use
-        ``--video-aspect`` to fix the aspect value. Experimental, do not expect
-        too much from it.
-
-        0
-            Normal 2D display
-        1
-            Convert side by side input to full-color red-cyan stereo.
-        2
-            Convert side by side input to full-color green-magenta stereo.
-        3
-            Convert side by side input to quad buffered stereo. Only supported
-            by very few OpenGL cards.
-
-    The following options are only useful if writing your own fragment programs.
-
-    ``customprog=<filename>``
-        Load a custom fragment program from ``<filename>``.
-    ``customtex=<filename>``
-        Load a custom "gamma ramp" texture from ``<filename>``. This can be used
-        in combination with ``yuv=4`` or with the ``customprog`` option.
-    ``(no-)customtlin``
-        If enabled (default) use ``GL_LINEAR`` interpolation, otherwise use
-        ``GL_NEAREST`` for customtex texture.
-    ``(no-)customtrect``
-        If enabled, use ``texture_rectangle`` for the ``customtex`` texture.
-        Default is disabled.
-    ``(no-)mipmapgen``
-        If enabled, mipmaps for the video are automatically generated. This
-        should be useful together with the ``customprog`` and the ``TXB``
-        instruction to implement blur filters with a large radius. For most
-        OpenGL implementations, this is very slow for any non-RGB formats.
-        Default is disabled.
-
-    Normally there is no reason to use the following options; they mostly
-    exist for testing purposes.
-
-    ``(no-)glfinish``
-        Call ``glFinish()`` before swapping buffers. Slower but in some cases
-        more correct output (default: disabled).
-    ``(no-)manyfmts``
-        Enables support for more (RGB and BGR) color formats (default: enabled).
-        Needs OpenGL version >= 1.2.
-    ``slice-height=<0-...>``
-        Number of lines copied to texture in one piece (default: 0). 0 for
-        whole image.
-    ``sw``
-        Continue even if a software renderer is detected.
-
-    ``backend=<sys>``
-        auto
-            auto-select (default)
-        cocoa
-            Cocoa/OS X
-        win
-            Win32/WGL
-        x11
-            X11/GLX
-        wayland
-            Wayland/EGL
+    ``gpu`` makes use of FBOs by default. Sometimes you can achieve better
+    quality or performance by changing the ``--gpu-fbo-format`` option to
+    ``rgb16f``, ``rgb32f`` or ``rgb``. Known problems include Mesa/Intel not
+    accepting ``rgb16``, Mesa sometimes not being compiled with float texture
+    support, and some OS X setups being very slow with ``rgb16`` but fast
+    with ``rgb32f``. If you have problems, you can also try enabling the
+    ``--gpu-dumb-mode=yes`` option.
 
 ``sdl``
     SDL 2.0+ Render video output driver, depending on system with or without
@@ -792,22 +310,25 @@ Available video output drivers are:
     .. note:: This driver is for compatibility with systems that don't provide
               proper graphics drivers, or which support GLES only.
 
-    ``sw``
+    The following global options are supported by this video output:
+
+    ``--sdl-sw``
         Continue even if a software renderer is detected.
 
-    ``switch-mode``
+    ``--sdl-switch-mode``
         Instruct SDL to switch the monitor video mode when going fullscreen.
 
 ``vaapi``
     Intel VA API video output driver with support for hardware decoding. Note
-    that there is absolutely no reason to use this, other than wanting to use
-    hardware decoding to save power on laptops, or possibly preventing video
-    tearing with some setups.
+    that there is absolutely no reason to use this, other than compatibility.
+    This is low quality, and has issues with OSD.
 
     .. note:: This driver is for compatibility with crappy systems. You can
-              use vaapi hardware decoding with ``--vo=opengl`` too.
+              use vaapi hardware decoding with ``--vo=gpu`` too.
 
-    ``scaling=<algorithm>``
+    The following global options are supported by this video output:
+
+    ``--vo-vaapi-scaling=<algorithm>``
         default
             Driver default (mpv default as well).
         fast
@@ -817,9 +338,9 @@ Available video output drivers are:
         nla
             ``non-linear anamorphic scaling``
 
-    ``deint-mode=<mode>``
+    ``--vo-vaapi-deint-mode=<mode>``
         Select deinterlacing algorithm. Note that by default deinterlacing is
-        initially always off, and needs to be enabled with the ``D`` key
+        initially always off, and needs to be enabled with the ``d`` key
         (default key binding for ``cycle deinterlace``).
 
         This option doesn't apply if libva supports video post processing (vpp).
@@ -832,11 +353,11 @@ Available video output drivers are:
         no
             Don't allow deinterlacing (default for newer libva).
         first-field
-            Show only first field (going by ``--field-dominance``).
+            Show only first field.
         bob
             bob deinterlacing (default for older libva).
 
-    ``scaled-osd=<yes|no>``
+    ``--vo-vaapi-scaled-osd=<yes|no>``
         If enabled, then the OSD is rendered at video resolution and scaled to
         display resolution. By default, this is disabled, and the OSD is
         rendered at display resolution if the driver supports it.
@@ -844,16 +365,48 @@ Available video output drivers are:
 ``null``
     Produces no video output. Useful for benchmarking.
 
+    Usually, it's better to disable video with ``--no-video`` instead.
+
+    The following global options are supported by this video output:
+
+    ``--vo-null-fps=<value>``
+        Simulate display FPS. This artificially limits how many frames the
+        VO accepts per second.
+
 ``caca``
     Color ASCII art video output driver that works on a text console.
 
     .. note:: This driver is a joke.
 
+``tct``
+    Color Unicode art video output driver that works on a text console.
+    Depends on support of true color by modern terminals to display the images
+    at full color range. On Windows it requires an ansi terminal such as mintty.
+
+    ``--vo-tct-algo=<algo>``
+        Select how to write the pixels to the terminal.
+
+        half-blocks
+            Uses unicode LOWER HALF BLOCK character to achieve higher vertical
+            resolution. (Default.)
+        plain
+            Uses spaces. Causes vertical resolution to drop twofolds, but in
+            theory works in more places.
+
+    ``--vo-tct-width=<width>``  ``--vo-tct-height=<height>``
+        Assume the terminal has the specified character width and/or height.
+        These default to 80x25 if the terminal size cannot be determined.
+
+    ``--vo-tct-256=<yes|no>`` (default: no)
+        Use 256 colors - for terminals which don't support true color.
+
 ``image``
     Output each frame into an image file in the current directory. Each file
     takes the frame number padded with leading zeros as name.
 
-    ``format=<format>``
+    The following global options are supported by this video output:
+
+    ``--vo-image-format=<format>``
         Select the image file format.
 
         jpg
@@ -862,49 +415,137 @@ Available video output drivers are:
             JPEG files, extension .jpeg.
         png
             PNG files.
-        ppm
-            Portable bitmap format.
-        pgm
-            Portable graymap format.
-        pgmyuv
-            Portable graymap format, using the YV12 pixel format.
-        tga
-            Truevision TGA.
 
-    ``png-compression=<0-9>``
+    ``--vo-image-png-compression=<0-9>``
         PNG compression factor (speed vs. file size tradeoff) (default: 7)
-    ``png-filter=<0-5>``
+    ``--vo-image-png-filter=<0-5>``
         Filter applied prior to PNG compression (0 = none; 1 = sub; 2 = up;
         3 = average; 4 = Paeth; 5 = mixed) (default: 5)
-    ``jpeg-quality=<0-100>``
+    ``--vo-image-jpeg-quality=<0-100>``
         JPEG quality factor (default: 90)
-    ``(no-)jpeg-progressive``
-        Specify standard or progressive JPEG (default: no).
-    ``(no-)jpeg-baseline``
-        Specify use of JPEG baseline or not (default: yes).
-    ``jpeg-optimize=<0-100>``
+    ``--vo-image-jpeg-optimize=<0-100>``
         JPEG optimization factor (default: 100)
-    ``jpeg-smooth=<0-100>``
-        smooth factor (default: 0)
-    ``jpeg-dpi=<1->``
-        JPEG DPI (default: 72)
-    ``outdir=<dirname>``
+    ``--vo-image-outdir=<dirname>``
         Specify the directory to save the image files to (default: ``./``).
 
-``wayland`` (Wayland only)
-    Wayland shared memory video output as fallback for ``opengl``.
+``libmpv``
+    For use with libmpv direct embedding. As a special case, on OS X it
+    is used like a normal VO within mpv (cocoa-cb). Otherwise useless in any
+    other contexts.
+    (See ``<mpv/render.h>``.)
 
-    .. note:: This driver is for compatibility with systems that don't provide
-              working OpenGL drivers.
+    This also supports many of the options the ``gpu`` VO has, depending on the
+    backend.
 
-    ``alpha``
-        Use a buffer format that supports videos and images with alpha
-        information
-    ``rgb565``
-        Use RGB565 as buffer format. This format is implemented on most
-        platforms, especially on embedded where it is far more efficient then
-        RGB8888.
-    ``triple-buffering``
-        Use 3 buffers instead of 2. This can lead to more fluid playback, but
-        uses more memory.
+``rpi`` (Raspberry Pi)
+    Native video output on the Raspberry Pi using the MMAL API.
 
+    This is deprecated. Use ``--vo=gpu`` instead, which is the default and
+    provides the same functionality. The ``rpi`` VO will be removed in
+    mpv 0.23.0. Its functionality was folded into --vo=gpu, which now uses
+    RPI hardware decoding by treating it as a hardware overlay (without applying
+    GL filtering). Also to be changed in 0.23.0: the --fs flag will be reset to
+    "no" by default (like on the other platforms).
+
+    The following deprecated global options are supported by this video output:
+
+    ``--rpi-display=<number>``
+        Select the display number on which the video overlay should be shown
+        (default: 0).
+
+    ``--rpi-layer=<number>``
+        Select the dispmanx layer on which the video overlay should be shown
+        (default: -10). Note that mpv will also use the 2 layers above the
+        selected layer, to handle the window background and OSD. Actual video
+        rendering will happen on the layer above the selected layer.
+
+    ``--rpi-background=<yes|no>``
+        Whether to render a black background behind the video (default: no).
+        Normally it's better to kill the console framebuffer instead, which
+        gives better performance.
+
+    ``--rpi-osd=<yes|no>``
+        Enabled by default. If disabled with ``no``, no OSD layer is created.
+        This also means there will be no subtitles rendered.
+
+``drm`` (Direct Rendering Manager)
+    Video output driver using Kernel Mode Setting / Direct Rendering Manager.
+    Should be used when one doesn't want to install full-blown graphical
+    environment (e.g. no X). Does not support hardware acceleration (if you
+    need this, check the ``drm`` backend for ``gpu`` VO).
+
+    The following global options are supported by this video output:
+
+    ``--drm-connector=[<gpu_number>.]<name>``
+        Select the connector to use (usually this is a monitor.) If ``<name>``
+        is empty or ``auto``, mpv renders the output on the first available
+        connector. Use ``--drm-connector=help`` to get list of available
+        connectors. When using multiple graphic cards, use the ``<gpu_number>``
+        argument to disambiguate.
+        (default: empty)
+
+    ``--drm-mode=<number>``
+        Mode ID to use (resolution and frame rate).
+        (default: 0)
+
+    ``--drm-draw-plane=<primary|overlay|N>``
+        Select the DRM plane to which video and OSD is drawn to, under normal
+        circumstances. The plane can be specified as ``primary``, which will
+        pick the first applicable primary plane; ``overlay``, which will pick
+        the first applicable overlay plane; or by index. The index is zero
+        based, and related to the CRTC.
+        (default: primary)
+
+        When using this option with the drmprime-drm hwdec interop, only the OSD
+        is rendered to this plane.
+
+    ``--drm-drmprime-video-plane=<primary|overlay|N>``
+        Select the DRM plane to use for video with the drmprime-drm hwdec
+        interop (used by e.g. the rkmpp hwdec on RockChip SoCs, and v4l2 hwdec:s
+        on various other SoC:s). The plane is unused otherwise. This option
+        accepts the same values as ``--drm-draw-plane``. (default: overlay)
+
+        To be able to successfully play 4K video on various SoCs you might need
+        to set ``--drm-draw-plane=overlay --drm-drmprime-video-plane=primary``
+        and setting ``--drm-draw-surface-size=1920x1080``, to render the OSD at a
+        lower resolution (the video when handled by the hwdec will be on the
+        drmprime-video plane and at full 4K resolution)
+
+    ``--drm-format=<xrgb8888|xrgb2101010>``
+        Select the DRM format to use (default: xrgb8888). This allows you to
+        choose the bit depth of the DRM mode. xrgb8888 is your usual 24 bit per
+        pixel/8 bits per channel packed RGB format with 8 bits of padding.
+        xrgb2101010 is a packed 30 bits per pixel/10 bits per channel packed RGB
+        format with 2 bits of padding.
+
+        Unless you have an intel graphics card, a recent kernel and a recent
+        version of mesa (>=18) xrgb2101010 is unlikely to work for you.
+
+        This currently only has an effect when used together with the ``drm``
+        backend for the ``gpu`` VO. The ``drm`` VO always uses xrgb8888.
+
+    ``--drm-draw-surface-size=<[WxH]>``
+        Sets the size of the surface used on the draw plane. The surface will
+        then be upscaled to the current screen resolution. This option can be
+        useful when used together with the drmprime-drm hwdec interop at high
+        resolutions, as it allows scaling the draw plane (which in this case
+        only handles the OSD) down to a size the GPU can handle.
+
+        When used without the drmprime-drm hwdec interop this option will just
+        cause the video to get rendered at a different resolution and then
+        scaled to screen size.
+
+        Note: this option is only available with DRM atomic support.
+        (default: display resolution)
+
+``mediacodec_embed`` (Android)
+    Renders ``IMGFMT_MEDIACODEC`` frames directly to an ``android.view.Surface``.
+    Requires ``--hwdec=mediacodec`` for hardware decoding, along with
+    ``--vo=mediacodec_embed`` and ``--wid=(intptr_t)(*android.view.Surface)``.
+
+    Since this video output driver uses native decoding and rendering routines,
+    many of mpv's features (subtitle rendering, OSD/OSC, video filters, etc)
+    are not available with this driver.
+
+    To use hardware decoding with ``--vo-gpu`` instead, use
+    ``--hwdec=mediacodec-copy`` along with ``--gpu-context=android``.

@@ -1,49 +1,37 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef MPV_MACOSX_APPLICATION
 #define MPV_MACOSX_APPLICATION
 
-typedef int (*mpv_main_fn)(int, char**);
+#include "osdep/macosx_menubar.h"
+#include "options/m_option.h"
 
-// Menu Keys identifing menu items
-typedef enum {
-    MPM_H_SIZE,
-    MPM_N_SIZE,
-    MPM_D_SIZE,
-    MPM_MINIMIZE,
-    MPM_ZOOM,
-} MPMenuKey;
+struct macos_opts {
+    int macos_title_bar_style;
+    int macos_title_bar_appearance;
+    int macos_title_bar_material;
+    struct m_color macos_title_bar_color;
+    int macos_fs_animation_duration;
+    int cocoa_cb_sw_renderer;
+};
 
 // multithreaded wrapper for mpv_main
-int cocoa_main(mpv_main_fn mpv_main, int argc, char *argv[]);
-
+int cocoa_main(int argc, char *argv[]);
 void cocoa_register_menu_item_action(MPMenuKey key, void* action);
-
-// initializes Cocoa application
-void init_cocoa_application(void);
-void terminate_cocoa_application(void);
-
-// Runs the Cocoa Main Event Loop
-void cocoa_run_runloop(void);
-void cocoa_stop_runloop(void);
-void cocoa_post_fake_event(void);
-
-void macosx_finder_args_preinit(int *argc, char ***argv);
 
 #endif /* MPV_MACOSX_APPLICATION */

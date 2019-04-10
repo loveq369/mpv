@@ -8,21 +8,20 @@
  * Feb 19, 2002: Significant rewrites by Charles R. Henrich (henrich@msu.edu)
  *               to add support for audio, and bktr *BSD support.
  *
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -47,7 +46,6 @@
 #include "stream.h"
 
 #include "audio/format.h"
-#include "video/img_fourcc.h"
 #include "osdep/timer.h"
 
 #include "tv.h"
@@ -75,7 +73,7 @@ const struct m_sub_options tv_params_conf = {
         OPT_INT("audiorate", audiorate, 0),
         OPT_STRING("driver", driver, 0),
         OPT_STRING("device", device, 0),
-        OPT_STRING("freq", freq, 0),
+        OPT_FLOAT("freq", freq, 0),
         OPT_STRING("channel", channel, 0),
         OPT_STRING("chanlist", chanlist, 0),
         OPT_STRING("norm", norm, 0),
@@ -146,7 +144,7 @@ const struct m_sub_options tv_params_conf = {
 
 tvi_handle_t *tv_new_handle(int size, struct mp_log *log, const tvi_functions_t *functions)
 {
-    tvi_handle_t *h = malloc(sizeof(*h));
+    tvi_handle_t *h = calloc(1, sizeof(*h));
 
     if (!h)
         return NULL;
@@ -160,12 +158,9 @@ tvi_handle_t *tv_new_handle(int size, struct mp_log *log, const tvi_functions_t 
 
     h->log        = log;
     h->functions  = functions;
-    h->seq        = 0;
     h->chanlist   = -1;
-    h->chanlist_s = NULL;
     h->norm       = -1;
     h->channel    = -1;
-    h->scan       = NULL;
 
     return h;
 }
@@ -603,7 +598,7 @@ int open_tv(tvi_handle_t *tvh)
     /* we need to set frequency */
     if (tvh->tv_param->freq)
     {
-        unsigned long freq = atof(tvh->tv_param->freq)*16;
+        unsigned long freq = tvh->tv_param->freq * 16;
 
         /* set freq in MHz */
         funcs->control(tvh->priv, TVI_CONTROL_TUN_SET_FREQ, &freq);

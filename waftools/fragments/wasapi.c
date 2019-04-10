@@ -1,9 +1,6 @@
-#define COBJMACROS 1
-#define _WIN32_WINNT 0x600
 #include <malloc.h>
 #include <stdlib.h>
 #include <process.h>
-#include <initguid.h>
 #include <audioclient.h>
 #include <endpointvolume.h>
 #include <mmdeviceapi.h>

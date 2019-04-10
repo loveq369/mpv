@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -28,7 +28,7 @@
 #include "timer.h"
 
 static uint64_t raw_time_offset;
-pthread_once_t timer_init_once = PTHREAD_ONCE_INIT;
+static pthread_once_t timer_init_once = PTHREAD_ONCE_INIT;
 
 static void do_timer_init(void)
 {
@@ -38,7 +38,7 @@ static void do_timer_init(void)
     // Arbitrary additional offset to avoid confusing relative/absolute times.
     // Also,we rule that the timer never returns 0 (so default-initialized
     // time values will be always in the past).
-    raw_time_offset -= 10000000;
+    raw_time_offset -= MP_START_TIME;
 }
 
 void mp_time_init(void)
@@ -48,22 +48,15 @@ void mp_time_init(void)
 
 int64_t mp_time_us(void)
 {
-    return mp_raw_time_us() - raw_time_offset;
+    int64_t r = mp_raw_time_us() - raw_time_offset;
+    if (r < MP_START_TIME)
+        r = MP_START_TIME;
+    return r;
 }
 
 double mp_time_sec(void)
 {
     return mp_time_us() / (double)(1000 * 1000);
-}
-
-int64_t mp_time_relative_us(int64_t *t)
-{
-    int64_t r = 0;
-    int64_t now = mp_time_us();
-    if (*t)
-        r = now - *t;
-    *t = now;
-    return r;
 }
 
 int64_t mp_add_timeout(int64_t time_us, double timeout_sec)
@@ -116,6 +109,11 @@ struct timespec mp_time_us_to_timespec(int64_t time_us)
     return ts;
 }
 
+struct timespec mp_rel_time_to_timespec(double timeout_sec)
+{
+    return mp_time_us_to_timespec(mp_add_timeout(mp_time_us(), timeout_sec));
+}
+
 #if 0
 #include <stdio.h>
 #include "threads.h"
@@ -138,7 +136,8 @@ int main(void) {
 #if TEST_SLEEP
         mp_sleep_us(delay);
 #else
-        mpthread_cond_timedwait(&cnd, &mtx, r + delay);
+        struct timespec ts = mp_time_us_to_timespec(r + delay);
+        pthread_cond_timedwait(&cnd, &mtx, &ts);
 #endif
         j = (mp_time_us() - r) - delay;
         printf("sleep time: t=%"PRId64" sleep=%8i err=%5i\n", r, delay, (int)j);

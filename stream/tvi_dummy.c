@@ -1,27 +1,26 @@
 /*
  * Only a sample!
  *
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
 
 #include <stdio.h>
-#include "video/img_fourcc.h"
+#include "common/common.h"
 #include "tv.h"
 
 static tvi_handle_t *tvi_init_dummy(struct mp_log *log, tv_param_t* tv_param);
@@ -106,7 +105,7 @@ static int do_control(priv_t *priv, int cmd, void *arg)
 static double grab_video_frame(priv_t *priv, char *buffer, int len)
 {
     memset(buffer, 0x42, len);
-    return 1;
+    return MP_NOPTS_VALUE;
 }
 
 static int get_video_framesize(priv_t *priv)
@@ -118,7 +117,7 @@ static int get_video_framesize(priv_t *priv)
 static double grab_audio_frame(priv_t *priv, char *buffer, int len)
 {
     memset(buffer, 0x42, len);
-    return 1;
+    return MP_NOPTS_VALUE;
 }
 
 static int get_audio_framesize(priv_t *priv)

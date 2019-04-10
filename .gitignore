@@ -14,12 +14,12 @@
 /input/input_conf.h
 /tags
 /TAGS
-/video/out/gl_video_shaders.h
 /video/out/x11_icon.inc
 /demux/ebml_defs.c
 /demux/ebml_types.h
 /sub/osd_font.h
 /player/lua/*.inc
+/player/builtin_conf.inc
 /DOCS/man/mpv.1
 /DOCS/man/mpv.aux
 /DOCS/man/mpv.log
@@ -28,6 +28,8 @@
 /DOCS/man/mpv.toc
 
 /waf
+/waf-*
+/waf3-*
 /build
 /.waf*
 /.lock-waf_*

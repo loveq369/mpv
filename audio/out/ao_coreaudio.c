@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <CoreAudio/HostTime.h>
@@ -25,8 +25,9 @@
 #include "options/m_option.h"
 #include "misc/ring.h"
 #include "common/msg.h"
-#include "audio/out/ao_coreaudio_properties.h"
-#include "audio/out/ao_coreaudio_utils.h"
+#include "ao_coreaudio_chmap.h"
+#include "ao_coreaudio_properties.h"
+#include "ao_coreaudio_utils.h"
 
 struct priv {
     AudioDeviceID device;
@@ -34,18 +35,11 @@ struct priv {
 
     uint64_t hw_latency_us;
 
-    // options
-    int opt_device_id;
-    int opt_list;
+    AudioStreamBasicDescription original_asbd;
+    AudioStreamID original_asbd_stream;
+
+    int change_physical_format;
 };
-
-bool ca_layout_to_mp_chmap(struct ao *ao, AudioChannelLayout *layout,
-                           struct mp_chmap *chmap);
-
-static int64_t ca_frames_to_us(struct ao *ao, uint32_t frames)
-{
-    return frames / (float) ao->samplerate * 1e6;
-}
 
 static int64_t ca_get_hardware_latency(struct ao *ao) {
     struct priv *p = ao->priv;
@@ -61,12 +55,8 @@ static int64_t ca_get_hardware_latency(struct ao *ao) {
             &size);
     CHECK_CA_ERROR("cannot get audio unit latency");
 
-    uint32_t frames = 0;
-    err = CA_GET_O(p->device, kAudioDevicePropertyLatency, &frames);
-    CHECK_CA_ERROR("cannot get device latency");
-
     uint64_t audiounit_latency_us = audiounit_latency_sec * 1e6;
-    uint64_t device_latency_us    = ca_frames_to_us(ao, frames);
+    uint64_t device_latency_us    = ca_get_device_latency_us(ao, p->device);
 
     MP_VERBOSE(ao, "audiounit latency [us]: %lld\n", audiounit_latency_us);
     MP_VERBOSE(ao, "device latency [us]: %lld\n", device_latency_us);
@@ -77,29 +67,20 @@ coreaudio_error:
     return 0;
 }
 
-static int64_t ca_get_latency(const AudioTimeStamp *ts)
-{
-    uint64_t out = AudioConvertHostTimeToNanos(ts->mHostTime);
-    uint64_t now = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime());
-
-    if (now > out)
-        return 0;
-
-    return (out - now) * 1e-3;
-}
-
 static OSStatus render_cb_lpcm(void *ctx, AudioUnitRenderActionFlags *aflags,
                               const AudioTimeStamp *ts, UInt32 bus,
                               UInt32 frames, AudioBufferList *buffer_list)
 {
     struct ao *ao   = ctx;
     struct priv *p  = ao->priv;
-    AudioBuffer buf = buffer_list->mBuffers[0];
+    void *planes[MP_NUM_CHANNELS] = {0};
+
+    for (int n = 0; n < ao->num_planes; n++)
+        planes[n] = buffer_list->mBuffers[n].mData;
 
     int64_t end = mp_time_us();
     end += p->hw_latency_us + ca_get_latency(ts) + ca_frames_to_us(ao, frames);
-
-    ao_read_data(ao, &buf.mData, frames, end);
+    ao_read_data(ao, planes, frames, end);
     return noErr;
 }
 
@@ -138,28 +119,43 @@ static int control(struct ao *ao, enum aocontrol cmd, void *arg)
         return set_volume(ao, arg);
     case AOCONTROL_HAS_SOFT_VOLUME:
         return CONTROL_TRUE;
-    case AOCONTROL_HAS_PER_APP_VOLUME:
-        return CONTROL_TRUE;
     }
     return CONTROL_UNKNOWN;
 }
 
-static bool init_chmap(struct ao *ao);
 static bool init_audiounit(struct ao *ao, AudioStreamBasicDescription asbd);
+static void init_physical_format(struct ao *ao);
+
+static bool reinit_device(struct ao *ao) {
+    struct priv *p = ao->priv;
+
+    OSStatus err = ca_select_device(ao, ao->device, &p->device);
+    CHECK_CA_ERROR("failed to select device");
+
+    return true;
+
+coreaudio_error:
+    return false;
+}
 
 static int init(struct ao *ao)
 {
     struct priv *p = ao->priv;
 
-    if (p->opt_list) ca_print_device_list(ao);
+    if (!af_fmt_is_pcm(ao->format) || (ao->init_flags & AO_INIT_EXCLUSIVE)) {
+        MP_VERBOSE(ao, "redirecting to coreaudio_exclusive\n");
+        ao->redirect = "coreaudio_exclusive";
+        return CONTROL_ERROR;
+    }
 
-    OSStatus err = ca_select_device(ao, p->opt_device_id, &p->device);
-    CHECK_CA_ERROR("failed to select device");
-
-    if (!init_chmap(ao))
+    if (!reinit_device(ao))
         goto coreaudio_error;
 
-    ao->format = af_fmt_from_planar(ao->format);
+    if (p->change_physical_format)
+        init_physical_format(ao);
+
+    if (!ca_init_chmap(ao, p->device))
+        goto coreaudio_error;
 
     AudioStreamBasicDescription asbd;
     ca_fill_asbd(ao, &asbd);
@@ -173,44 +169,83 @@ coreaudio_error:
     return CONTROL_ERROR;
 }
 
-static bool init_chmap(struct ao *ao)
+static void init_physical_format(struct ao *ao)
 {
     struct priv *p = ao->priv;
-    OSStatus err;
-    AudioChannelLayout *layouts;
-    size_t n_layouts;
+    OSErr err;
 
-    err = CA_GET_ARY_O(p->device,
-                       kAudioDevicePropertyPreferredChannelLayout,
-                       &layouts, &n_layouts);
-    CHECK_CA_ERROR("could not get audio device prefered layouts");
+    void *tmp = talloc_new(NULL);
 
-    struct mp_chmap_sel chmap_sel = {0};
-    for (int i = 0; i < n_layouts; i++) {
-        struct mp_chmap chmap = {0};
-        if (ca_layout_to_mp_chmap(ao, &layouts[i], &chmap))
-            mp_chmap_sel_add_map(&chmap_sel, &chmap);
+    AudioStreamBasicDescription asbd;
+    ca_fill_asbd(ao, &asbd);
+
+    AudioStreamID *streams;
+    size_t n_streams;
+
+    err = CA_GET_ARY_O(p->device, kAudioDevicePropertyStreams,
+                       &streams, &n_streams);
+    CHECK_CA_ERROR("could not get number of streams");
+
+    talloc_steal(tmp, streams);
+
+    MP_VERBOSE(ao, "Found %zd substream(s).\n", n_streams);
+
+    for (int i = 0; i < n_streams; i++) {
+        AudioStreamRangedDescription *formats;
+        size_t n_formats;
+
+        MP_VERBOSE(ao, "Looking at formats in substream %d...\n", i);
+
+        err = CA_GET_ARY(streams[i], kAudioStreamPropertyAvailablePhysicalFormats,
+                         &formats, &n_formats);
+
+        if (!CHECK_CA_WARN("could not get number of stream formats"))
+            continue; // try next one
+
+        talloc_steal(tmp, formats);
+
+        uint32_t direction;
+        err = CA_GET(streams[i], kAudioStreamPropertyDirection, &direction);
+        CHECK_CA_ERROR("could not get stream direction");
+        if (direction != 0) {
+            MP_VERBOSE(ao, "Not an output stream.\n");
+            continue;
+        }
+
+        AudioStreamBasicDescription best_asbd = {0};
+
+        for (int j = 0; j < n_formats; j++) {
+            AudioStreamBasicDescription *stream_asbd = &formats[j].mFormat;
+
+            ca_print_asbd(ao, "- ", stream_asbd);
+
+            if (!best_asbd.mFormatID || ca_asbd_is_better(&asbd, &best_asbd,
+                                                          stream_asbd))
+                best_asbd = *stream_asbd;
+        }
+
+        if (best_asbd.mFormatID) {
+            p->original_asbd_stream = streams[i];
+            err = CA_GET(p->original_asbd_stream,
+                         kAudioStreamPropertyPhysicalFormat,
+                         &p->original_asbd);
+            CHECK_CA_WARN("could not get current physical stream format");
+
+            if (ca_asbd_equals(&p->original_asbd, &best_asbd)) {
+                MP_VERBOSE(ao, "Requested format already set, not changing.\n");
+                p->original_asbd.mFormatID = 0;
+                break;
+            }
+
+            if (!ca_change_physical_format_sync(ao, streams[i], best_asbd))
+                p->original_asbd = (AudioStreamBasicDescription){0};
+            break;
+        }
     }
-
-    talloc_free(layouts);
-
-    if (ao->channels.num < 3) {
-        struct mp_chmap chmap;
-        mp_chmap_from_channels(&chmap, ao->channels.num);
-        mp_chmap_sel_add_map(&chmap_sel, &chmap);
-    }
-
-    if (!ao_chmap_sel_adjust(ao, &chmap_sel, &ao->channels)) {
-        MP_ERR(ao, "could not select a suitable channel map among the "
-                   "hardware supported ones. Make sure to configure your "
-                   "output device correctly in 'Audio MIDI Setup.app'\n");
-        goto coreaudio_error;
-    }
-
-    return true;
 
 coreaudio_error:
-    return false;
+    talloc_free(tmp);
+    return;
 }
 
 static bool init_audiounit(struct ao *ao, AudioStreamBasicDescription asbd)
@@ -221,9 +256,9 @@ static bool init_audiounit(struct ao *ao, AudioStreamBasicDescription asbd)
 
     AudioComponentDescription desc = (AudioComponentDescription) {
         .componentType         = kAudioUnitType_Output,
-        .componentSubType      = (p->opt_device_id < 0) ?
-                                    kAudioUnitSubType_DefaultOutput :
-                                    kAudioUnitSubType_HALOutput,
+        .componentSubType      = (ao->device) ?
+                                    kAudioUnitSubType_HALOutput :
+                                    kAudioUnitSubType_DefaultOutput,
         .componentManufacturer = kAudioUnitManufacturer_Apple,
         .componentFlags        = 0,
         .componentFlagsMask    = 0,
@@ -303,147 +338,95 @@ static void uninit(struct ao *ao)
     AudioOutputUnitStop(p->audio_unit);
     AudioUnitUninitialize(p->audio_unit);
     AudioComponentInstanceDispose(p->audio_unit);
+
+    if (p->original_asbd.mFormatID) {
+        OSStatus err = CA_SET(p->original_asbd_stream,
+                              kAudioStreamPropertyPhysicalFormat,
+                              &p->original_asbd);
+        CHECK_CA_WARN("could not restore physical stream format");
+    }
 }
 
-// Channel Mapping functions
-static const int speaker_map[][2] = {
-    { kAudioChannelLabel_Left,                 MP_SPEAKER_ID_FL   },
-    { kAudioChannelLabel_Right,                MP_SPEAKER_ID_FR   },
-    { kAudioChannelLabel_Center,               MP_SPEAKER_ID_FC   },
-    { kAudioChannelLabel_LFEScreen,            MP_SPEAKER_ID_LFE  },
-    { kAudioChannelLabel_LeftSurround,         MP_SPEAKER_ID_BL   },
-    { kAudioChannelLabel_RightSurround,        MP_SPEAKER_ID_BR   },
-    { kAudioChannelLabel_LeftCenter,           MP_SPEAKER_ID_FLC  },
-    { kAudioChannelLabel_RightCenter,          MP_SPEAKER_ID_FRC  },
-    { kAudioChannelLabel_CenterSurround,       MP_SPEAKER_ID_BC   },
-    { kAudioChannelLabel_LeftSurroundDirect,   MP_SPEAKER_ID_SL   },
-    { kAudioChannelLabel_RightSurroundDirect,  MP_SPEAKER_ID_SR   },
-    { kAudioChannelLabel_TopCenterSurround,    MP_SPEAKER_ID_TC   },
-    { kAudioChannelLabel_VerticalHeightLeft,   MP_SPEAKER_ID_TFL  },
-    { kAudioChannelLabel_VerticalHeightCenter, MP_SPEAKER_ID_TFC  },
-    { kAudioChannelLabel_VerticalHeightRight,  MP_SPEAKER_ID_TFR  },
-    { kAudioChannelLabel_TopBackLeft,          MP_SPEAKER_ID_TBL  },
-    { kAudioChannelLabel_TopBackCenter,        MP_SPEAKER_ID_TBC  },
-    { kAudioChannelLabel_TopBackRight,         MP_SPEAKER_ID_TBR  },
+static OSStatus hotplug_cb(AudioObjectID id, UInt32 naddr,
+                           const AudioObjectPropertyAddress addr[],
+                           void *ctx)
+{
+    struct ao *ao = ctx;
+    MP_VERBOSE(ao, "Handling potential hotplug event...\n");
+    reinit_device(ao);
+    ao_hotplug_event(ao);
+    return noErr;
+}
 
-    // unofficial extensions
-    { kAudioChannelLabel_RearSurroundLeft,     MP_SPEAKER_ID_SDL  },
-    { kAudioChannelLabel_RearSurroundRight,    MP_SPEAKER_ID_SDR  },
-    { kAudioChannelLabel_LeftWide,             MP_SPEAKER_ID_WL   },
-    { kAudioChannelLabel_RightWide,            MP_SPEAKER_ID_WR   },
-    { kAudioChannelLabel_LFE2,                 MP_SPEAKER_ID_LFE2 },
-
-    { kAudioChannelLabel_HeadphonesLeft,       MP_SPEAKER_ID_DL   },
-    { kAudioChannelLabel_HeadphonesRight,      MP_SPEAKER_ID_DR   },
-
-    { kAudioChannelLabel_Unknown,              -1 },
+static uint32_t hotplug_properties[] = {
+    kAudioHardwarePropertyDevices,
+    kAudioHardwarePropertyDefaultOutputDevice
 };
 
-static int ca_label_to_mp_speaker_id(AudioChannelLabel label)
+static int hotplug_init(struct ao *ao)
 {
-    for (int i = 0; speaker_map[i][1] >= 0; i++)
-        if (speaker_map[i][0] == label)
-            return speaker_map[i][1];
-    return -1;
-}
+    if (!reinit_device(ao))
+        goto coreaudio_error;
 
-static void ca_log_layout(struct ao *ao, AudioChannelLayout *layout)
-{
-    if (!mp_msg_test(ao->log, MSGL_V))
-        return;
-
-    AudioChannelDescription *descs = layout->mChannelDescriptions;
-
-    MP_VERBOSE(ao, "layout: tag: <%d>, bitmap: <%d>, "
-                   "descriptions <%d>\n",
-                   layout->mChannelLayoutTag,
-                   layout->mChannelBitmap,
-                   layout->mNumberChannelDescriptions);
-
-    for (int i = 0; i < layout->mNumberChannelDescriptions; i++) {
-        AudioChannelDescription d = descs[i];
-        MP_VERBOSE(ao, " - description %d: label <%d, %d>, flags: <%u>, "
-                       "coords: <%f, %f, %f>\n", i,
-                       d.mChannelLabel,
-                       ca_label_to_mp_speaker_id(d.mChannelLabel),
-                       d.mChannelFlags,
-                       d.mCoordinates[0],
-                       d.mCoordinates[1],
-                       d.mCoordinates[2]);
-    }
-}
-
-bool ca_layout_to_mp_chmap(struct ao *ao, AudioChannelLayout *layout,
-                           struct mp_chmap *chmap)
-{
-    AudioChannelLayoutTag tag  = layout->mChannelLayoutTag;
-    uint32_t layout_size       = sizeof(layout);
-    OSStatus err;
-
-    if (tag == kAudioChannelLayoutTag_UseChannelBitmap) {
-        err = AudioFormatGetProperty(kAudioFormatProperty_ChannelLayoutForBitmap,
-                                     sizeof(uint32_t),
-                                     &layout->mChannelBitmap,
-                                     &layout_size,
-                                     layout);
-        CHECK_CA_ERROR("failed to convert channel bitmap to descriptions");
-    } else if (tag != kAudioChannelLayoutTag_UseChannelDescriptions) {
-        err = AudioFormatGetProperty(kAudioFormatProperty_ChannelLayoutForTag,
-                                     sizeof(AudioChannelLayoutTag),
-                                     &layout->mChannelLayoutTag,
-                                     &layout_size,
-                                     layout);
-        CHECK_CA_ERROR("failed to convert channel tag to descriptions");
-    }
-
-    ca_log_layout(ao, layout);
-
-    // If the channel layout uses channel descriptions, from my
-    // experiments there are there three possibile cases:
-    // * The description has a label kAudioChannelLabel_Unknown:
-    //   Can't do anything about this (looks like non surround
-    //   layouts are like this).
-    // * The description uses positional information: this in
-    //   theory could be used but one would have to map spatial
-    //   positions to labels which is not really feasible.
-    // * The description has a well known label which can be mapped
-    //   to the waveextensible definition: this is the kind of
-    //   descriptions we process here.
-
-    for (int n = 0; n < layout->mNumberChannelDescriptions; n++) {
-        AudioChannelLabel label = layout->mChannelDescriptions[n].mChannelLabel;
-        uint8_t speaker = ca_label_to_mp_speaker_id(label);
-        if (label == kAudioChannelLabel_Unknown)
-            continue;
-        if (speaker < 0) {
-            MP_VERBOSE(ao, "channel label=%d unusable to build channel "
-                           "bitmap, skipping layout\n", label);
-        } else {
-            chmap->speaker[n] = speaker;
-            chmap->num = n + 1;
+    OSStatus err = noErr;
+    for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
+        AudioObjectPropertyAddress addr = {
+            hotplug_properties[i],
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMaster
+        };
+        err = AudioObjectAddPropertyListener(
+            kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
+        if (err != noErr) {
+            char *c1 = mp_tag_str(hotplug_properties[i]);
+            char *c2 = mp_tag_str(err);
+            MP_ERR(ao, "failed to set device listener %s (%s)", c1, c2);
+            goto coreaudio_error;
         }
     }
 
-    return chmap->num > 0;
+    return 0;
+
 coreaudio_error:
-    ca_log_layout(ao, layout);
-    return false;
+    return -1;
+}
+
+static void hotplug_uninit(struct ao *ao)
+{
+    OSStatus err = noErr;
+    for (int i = 0; i < MP_ARRAY_SIZE(hotplug_properties); i++) {
+        AudioObjectPropertyAddress addr = {
+            hotplug_properties[i],
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMaster
+        };
+        err = AudioObjectRemovePropertyListener(
+            kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
+        if (err != noErr) {
+            char *c1 = mp_tag_str(hotplug_properties[i]);
+            char *c2 = mp_tag_str(err);
+            MP_ERR(ao, "failed to set device listener %s (%s)", c1, c2);
+        }
+    }
 }
 
 #define OPT_BASE_STRUCT struct priv
 
 const struct ao_driver audio_out_coreaudio = {
-    .description = "CoreAudio AudioUnit",
-    .name      = "coreaudio",
-    .uninit    = uninit,
-    .init      = init,
-    .control   = control,
-    .pause     = stop,
-    .resume    = start,
-    .priv_size = sizeof(struct priv),
-    .options = (const struct m_option[]) {
-        OPT_INT("device_id", opt_device_id, 0, OPTDEF_INT(-1)),
-        OPT_FLAG("list", opt_list, 0),
+    .description    = "CoreAudio AudioUnit",
+    .name           = "coreaudio",
+    .uninit         = uninit,
+    .init           = init,
+    .control        = control,
+    .reset          = stop,
+    .resume         = start,
+    .hotplug_init   = hotplug_init,
+    .hotplug_uninit = hotplug_uninit,
+    .list_devs      = ca_get_device_list,
+    .priv_size      = sizeof(struct priv),
+    .options = (const struct m_option[]){
+        OPT_FLAG("change-physical-format", change_physical_format, 0),
         {0}
     },
+    .options_prefix = "coreaudio",
 };

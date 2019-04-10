@@ -1,21 +1,20 @@
 /*
- * This file is part of MPlayer.
- *
  * Original author: Benjamin Zores
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * This file is part of mpv.
+ *
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -36,7 +35,7 @@
 #include "osdep/io.h"
 
 #include "config.h"
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "common/common.h"
 #include "common/msg.h"
 
@@ -46,7 +45,7 @@
 #define FIRST_PCM_AID 160
 
 #include "stream.h"
-#include "options/m_option.h"
+#include "options/m_config.h"
 #include "options/options.h"
 #include "options/path.h"
 
@@ -109,18 +108,6 @@ typedef struct {
   int cfg_title;
   char *cfg_device;
 } dvd_priv_t;
-
-static const dvd_priv_t stream_priv_dflts = {
-  .cfg_title = 0,
-};
-
-#define OPT_BASE_STRUCT dvd_priv_t
-/// URL definition
-static const m_option_t stream_opts_fields[] = {
-    OPT_INTRANGE("title", cfg_title, 0, 0, 99),
-    OPT_STRING("device", cfg_device, 0),
-    {0}
-};
 
 static int dvd_lang_from_aid(stream_t *stream, int id) {
   dvd_priv_t *d;
@@ -541,6 +528,18 @@ static int control(stream_t *stream,int cmd,void* arg)
             *((unsigned int *)arg) = d->vmg_file->tt_srpt->nr_of_srpts;
             return 1;
         }
+        case STREAM_CTRL_GET_TITLE_LENGTH:
+        {
+            int t = *(double *)arg;
+            if (t < 0 || t >= d->vmg_file->tt_srpt->nr_of_srpts)
+                break;
+            if (d->tt_srpt->title[t].title_set_nr !=
+                d->tt_srpt->title[d->dvd_title].title_set_nr)
+                break;
+            *(double *)arg =
+                mp_get_titleset_length(d->vts_file, d->tt_srpt, t) / 1000.0;
+            return 1;
+        }
         case STREAM_CTRL_GET_NUM_CHAPTERS:
         {
             int r;
@@ -637,17 +636,24 @@ static int control(stream_t *stream,int cmd,void* arg)
             *(char**)arg = talloc_strdup(NULL, buffer);
             return STREAM_OK;
         }
+        case STREAM_CTRL_GET_SIZE:
+            *(int64_t *)arg =
+                (d->cur_pgc->cell_playback[d->last_cell-1].last_sector)*2048LL;
+            return STREAM_OK;
     }
     return STREAM_UNSUPPORTED;
 }
 
 
-static int open_s(stream_t *stream)
+static int open_s_internal(stream_t *stream)
 {
   int k;
   dvd_priv_t *d = stream->priv;
 
-  d->dvd_angle = stream->opts->dvd_angle;
+  struct dvd_opts *opts =
+    mp_get_config_group(stream, stream->global, &dvd_conf);
+
+  d->dvd_angle = opts->angle;
 
   MP_VERBOSE(stream, "URL: %s\n", stream->url);
   d->dvd_title = d->cfg_title + 1;
@@ -665,11 +671,11 @@ static int open_s(stream_t *stream)
      */
     if(d->cfg_device && d->cfg_device[0])
       d->dvd_device_current = d->cfg_device;
-    else if(stream->opts->dvd_device && stream->opts->dvd_device[0])
-      d->dvd_device_current = talloc_strdup(stream, stream->opts->dvd_device);
+    else if(opts->device && opts->device[0])
+      d->dvd_device_current = talloc_strdup(stream, opts->device);
     else
       d->dvd_device_current = DEFAULT_DVD_DEVICE;
-    d->dvd_speed = stream->opts->dvd_speed;
+    d->dvd_speed = opts->speed;
     dvd_set_speed(stream,d->dvd_device_current, d->dvd_speed);
 #if defined(__APPLE__) || defined(__DARWIN__)
     /* Dynamic DVD drive selection on Darwin */
@@ -682,12 +688,14 @@ static int open_s(stream_t *stream)
         snprintf(temp_device, len, "/dev/rdisk%d", i);
         dvd = DVDOpen(temp_device);
         if(!dvd) {
-          MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",temp_device, strerror(errno));
+          MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",temp_device,
+                 mp_strerror(errno));
         } else {
 #if DVDREAD_VERSION <= LIBDVDREAD_VERSION(0,9,4)
           dvd_file_t *dvdfile = DVDOpenFile(dvd,d->dvd_title,DVD_READ_INFO_FILE);
           if(!dvdfile) {
-            MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",temp_device, strerror(errno));
+            MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",temp_device,
+                   mp_strerror(errno));
             DVDClose(dvd);
             continue;
           }
@@ -706,7 +714,8 @@ static int open_s(stream_t *stream)
     {
         dvd = DVDOpen(d->dvd_device_current);
         if(!dvd) {
-          MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",d->dvd_device_current, strerror(errno));
+          MP_ERR(stream, "Couldn't open DVD device: %s (%s)\n",
+                 d->dvd_device_current, mp_strerror(errno));
           return STREAM_UNSUPPORTED;
         }
     }
@@ -772,7 +781,9 @@ static int open_s(stream_t *stream)
     d->vts_file=vts_file;
     d->cur_title = d->dvd_title;
 
-    pgc = vts_file->vts_pgcit ? vts_file->vts_pgcit->pgci_srp[ttn].pgc : NULL;
+    pgc_id = vts_file->vts_ptt_srpt->title[ttn].ptt[0].pgcn; // local
+    pgn  = vts_file->vts_ptt_srpt->title[ttn].ptt[0].pgn;  // local
+    pgc = vts_file->vts_pgcit ? vts_file->vts_pgcit->pgci_srp[pgc_id-1].pgc : NULL;
     /**
      * Check number of audio channels and types
      */
@@ -870,8 +881,6 @@ static int open_s(stream_t *stream)
      * Determine which program chain we want to watch.  This is based on the
      * chapter number.
      */
-    pgc_id = vts_file->vts_ptt_srpt->title[ttn].ptt[0].pgcn; // local
-    pgn  = vts_file->vts_ptt_srpt->title[ttn].ptt[0].pgn;  // local
     d->cur_pgc_idx = pgc_id-1;
     d->cur_pgc = vts_file->vts_pgcit->pgci_srp[pgc_id-1].pgc;
     d->cur_cell = d->cur_pgc->program_map[pgn-1] - 1; // start playback here
@@ -895,14 +904,12 @@ static int open_s(stream_t *stream)
 
     // ... (unimplemented)
     //    return NULL;
-    stream->type = STREAMTYPE_DVD;
     stream->demuxer = "+disc";
     stream->lavf_type = "mpeg";
     stream->sector_size = 2048;
     stream->fill_buffer = fill_buffer;
     stream->control = control;
     stream->close = stream_dvd_close;
-    stream->end_pos = (int64_t)(d->cur_pgc->cell_playback[d->last_cell-1].last_sector)*2048;
     MP_VERBOSE(stream, "DVD start=%d end=%d  \n",d->cur_pack,d->cur_pgc->cell_playback[d->last_cell-1].last_sector);
     stream->priv = (void*)d;
     return STREAM_OK;
@@ -916,11 +923,35 @@ fail:
   return STREAM_UNSUPPORTED;
 }
 
+static int open_s(stream_t *stream)
+{
+    dvd_priv_t *d = talloc_zero(stream, dvd_priv_t);
+    stream->priv = d;
+
+    bstr title, bdevice;
+    bstr_split_tok(bstr0(stream->path), "/", &title, &bdevice);
+
+    if (title.len) {
+        bstr rest;
+        d->cfg_title = bstrtoll(title, &rest, 10);
+        if (rest.len) {
+            MP_ERR(stream, "number expected: '%.*s'\n", BSTR_P(rest));
+            return STREAM_ERROR;
+        }
+    }
+
+    d->cfg_device = bstrto0(d, bdevice);
+
+    return open_s_internal(stream);
+}
+
 static int ifo_stream_open(stream_t *stream)
 {
-    dvd_priv_t *priv = talloc_ptrtype(stream, priv);
+    dvd_priv_t *priv = talloc_zero(stream, dvd_priv_t);
     stream->priv = priv;
-    *priv = stream_priv_dflts;
+
+    if (!stream->access_references)
+        goto unsupported;
 
     char *path = mp_file_get_path(priv, bstr0(stream->url));
     if (!path)
@@ -941,7 +972,7 @@ static int ifo_stream_open(stream_t *stream)
     priv->cfg_device = bstrto0(priv, mp_dirname(path));
 
     MP_INFO(stream, ".IFO detected. Redirecting to dvdread://\n");
-    return open_s(stream);
+    return open_s_internal(stream);
 
 unsupported:
     talloc_free(priv);
@@ -953,14 +984,6 @@ const stream_info_t stream_info_dvd = {
   .name = "dvd",
   .open = open_s,
   .protocols = (const char*const[]){ "dvdread", NULL },
-  .priv_size = sizeof(dvd_priv_t),
-  .priv_defaults = &stream_priv_dflts,
-  .options = stream_opts_fields,
-  .url_options = (const char*const[]){
-        "hostname=title",
-        "filename=device",
-        NULL
-   },
 };
 
 const stream_info_t stream_info_ifo = {

@@ -1,7 +1,7 @@
 waf build system overview
 =========================
 
-mpv's new build system is based on waf and it should completly replace the
+mpv's new build system is based on waf and it should completely replace the
 custom ./configure + Makefile based system inherited from MPlayer.
 
 Goals and the choice of waf
@@ -20,8 +20,9 @@ shortcomings:
    part is this pieces are spread apart in the configure and copy pasted for
    any single case. That brings us to..
 
-2) --enable-feature has to override the user and help him understand that he
-   has libraries missing and should install them for the feature to be enabled.
+2) --enable-feature has to be overridden by the user and helps them understand that
+   they have libraries missing and should install them for the feature to be
+   enabled.
 
 3) Must be customizable, hackable, pleasant to the developer eyes and to work
    with in general.
@@ -64,7 +65,7 @@ This defines a feature called ``vdpau`` which can be enabled or disabled by
 the users with configure flags (that's the meaning of ``--``). This feature
 depends on another feature whose name is ``x11``, and the autodetection check
 consists of running ``pkg-config`` and looking for ``vdpau`` with version
-``>= 0.2``. If the check succeds a ``#define HAVE_VDPAU 1`` will be added to
+``>= 0.2``. If the check succeeds a ``#define HAVE_VDPAU 1`` will be added to
 ``config.h``, if not ``#define HAVE_VDPAU 0`` will be added.
 
 The defines names are automatically prepended with ``HAVE_``, capitalized and
@@ -145,7 +146,7 @@ mpv's custom build step on top of waf
 
 Build step is pretty much vanilla waf. The only difference being that the list
 of source files can contain both strings or tuples. If a tuple is found,
-the second element in the tuple will the used to match the features detected
+the second element in the tuple will be used to match the features detected
 in the configure step (the ``name`` field described above). If this feature
 was not enabled during configure, the source file will not be compiled in.
 

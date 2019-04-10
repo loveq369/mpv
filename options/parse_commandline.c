@@ -1,19 +1,18 @@
 /*
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -22,6 +21,8 @@
 #include <errno.h>
 #include <assert.h>
 #include <stdbool.h>
+
+#include "config.h"
 
 #include "osdep/io.h"
 #include "common/global.h"
@@ -36,12 +37,8 @@
 #define GLOBAL 0
 #define LOCAL 1
 
-#define dvd_range(a)  (a >= 0 && a < 255)
-
-
 struct parse_state {
     struct m_config *config;
-    int argc;
     char **argv;
 
     bool no_more_opts;
@@ -57,14 +54,13 @@ static int split_opt_silent(struct parse_state *p)
 {
     assert(!p->error);
 
-    if (p->argc < 1)
+    if (!p->argv || !p->argv[0])
         return 1;
 
     p->is_opt = false;
     p->arg = bstr0(p->argv[0]);
     p->param = bstr0(NULL);
 
-    p->argc--;
     p->argv++;
 
     if (p->no_more_opts || !bstr_startswith0(p->arg, "-") || p->arg.len == 1)
@@ -85,10 +81,9 @@ static int split_opt_silent(struct parse_state *p)
     bool need_param = m_config_option_requires_param(p->config, p->arg) > 0;
 
     if (ambiguous && need_param) {
-        if (p->argc < 1)
+        if (!p->argv[0])
             return M_OPT_MISSING_PARAM;
         p->param = bstr0(p->argv[0]);
-        p->argc--;
         p->argv++;
     }
 
@@ -132,8 +127,7 @@ static void process_non_option(struct playlist *files, const char *arg)
 
 // returns M_OPT_... error code
 int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
-                                   struct mpv_global *global,
-                                   int argc, char **argv)
+                                   struct mpv_global *global, char **argv)
 {
     int ret = M_OPT_UNKNOWN;
     int mode = 0;
@@ -146,18 +140,17 @@ int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
 
     mode = GLOBAL;
 
-    struct parse_state p = {config, argc - 1, argv + 1};
+    struct parse_state p = {config, argv};
     while (split_opt(&p)) {
         if (p.is_opt) {
             int flags = M_SETOPT_FROM_CMDLINE;
             if (mode == LOCAL)
                 flags |= M_SETOPT_BACKUP | M_SETOPT_CHECK_ONLY;
-            int r = m_config_set_option_ext(config, p.arg, p.param, flags);
-            if (r <= M_OPT_EXIT) {
+            int r = m_config_set_option_cli(config, p.arg, p.param, flags);
+            if (r == M_OPT_EXIT) {
                 ret = r;
                 goto err_out;
-            }
-            if (r < 0) {
+            } else if (r < 0) {
                 MP_FATAL(config, "Setting commandline option --%.*s=%.*s failed.\n",
                          BSTR_P(p.arg), BSTR_P(p.param));
                 goto err_out;
@@ -206,10 +199,11 @@ int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
             if (bstrcmp0(p.arg, "playlist") == 0) {
                 // append the playlist to the local args
                 char *param0 = bstrdup0(NULL, p.param);
-                struct playlist *pl = playlist_parse_file(param0, global);
+                struct playlist *pl = playlist_parse_file(param0, NULL, global);
                 talloc_free(param0);
                 if (!pl) {
-                    MP_FATAL(config, "Error reading playlist '%.*s'", BSTR_P(p.param));
+                    MP_FATAL(config, "Error reading playlist '%.*s'\n",
+                             BSTR_P(p.param));
                     goto err_out;
                 }
                 playlist_transfer_entries(files, pl);
@@ -226,6 +220,7 @@ int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
             void *tmp = talloc_new(NULL);
             bstr file = p.arg;
             char *file0 = bstrdup0(tmp, p.arg);
+#if HAVE_GPL
             // expand DVD filename entries like dvd://1-3 into component titles
             if (bstr_startswith0(file, "dvd://")) {
                 int offset = 6;
@@ -241,6 +236,7 @@ int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
                     } else
                         end_title = strtol(splitpos + 1, &endpos, 10);
 
+                    #define dvd_range(a)  (a >= 0 && a < 255)
                     if (dvd_range(start_title) && dvd_range(end_title)
                             && (start_title < end_title)) {
                         for (int j = start_title; j <= end_title; j++) {
@@ -256,11 +252,10 @@ int m_config_parse_mp_command_line(m_config_t *config, struct playlist *files,
             } else {
                 process_non_option(files, file0);
             }
+#else
+            process_non_option(files, file0);
+#endif
             talloc_free(tmp);
-
-            // Lock stdin if it will be used as input
-            if (bstrcmp0(file, "-") == 0)
-                m_config_set_option0(config, "input-terminal", "no");
         }
     }
 
@@ -286,24 +281,20 @@ err_out:
  * during normal options parsing.
  */
 void m_config_preparse_command_line(m_config_t *config, struct mpv_global *global,
-                                    int argc, char **argv)
+                                    int *verbose, char **argv)
 {
-    struct MPOpts *opts = global->opts;
-
-    // Hack to shut up parser error messages
-    mp_msg_mute(global, true);
-
-    struct parse_state p = {config, argc - 1, argv + 1};
+    struct parse_state p = {config, argv};
     while (split_opt_silent(&p) == 0) {
         if (p.is_opt) {
             // Ignore non-pre-parse options. They will be set later.
             // Option parsing errors will be handled later as well.
             int flags = M_SETOPT_FROM_CMDLINE | M_SETOPT_PRE_PARSE_ONLY;
-            m_config_set_option_ext(config, p.arg, p.param, flags);
+            m_config_set_option_cli(config, p.arg, p.param, flags);
             if (bstrcmp0(p.arg, "v") == 0)
-                opts->verbose++;
+                (*verbose)++;
         }
     }
 
-    mp_msg_mute(global, false);
+    for (int n = 0; n < config->num_opts; n++)
+        config->opts[n].warning_was_printed = false;
 }

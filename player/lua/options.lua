@@ -30,15 +30,23 @@ local function typeconv(desttypeval, val)
 end
 
 
-function read_options(options, identifier)
+local function read_options(options, identifier)
     if identifier == nil then
         identifier = mp.get_script_name()
     end
     msg.debug("reading options for " .. identifier)
 
     -- read config file
-    local conffilename = "lua-settings/" .. identifier .. ".conf"
+    local conffilename = "script-opts/" .. identifier .. ".conf"
     local conffile = mp.find_config_file(conffilename)
+    if conffile == nil then
+        msg.verbose(conffilename .. " not found.")
+        conffilename = "lua-settings/" .. identifier .. ".conf"
+        conffile = mp.find_config_file(conffilename)
+        if conffile then
+            msg.warn("lua-settings/ is deprecated, use directory script-opts/")
+        end
+    end
     local f = conffile and io.open(conffile,"r")
     if f == nil then
         -- config not found
@@ -79,18 +87,18 @@ function read_options(options, identifier)
     end
 
     --parse command-line options
-    for key, val in pairs(mp.get_property_native("options/lua-opts")) do
+    for key, val in pairs(mp.get_property_native("options/script-opts")) do
         local prefix = identifier.."-"
         if not (string.find(key, prefix, 1, true) == nil) then
             key = string.sub(key, string.len(prefix)+1)
 
             -- match found values with defaults
             if options[key] == nil then
-                msg.warn("lua-opts: unknown key " .. key .. ", ignoring")
+                msg.warn("script-opts: unknown key " .. key .. ", ignoring")
             else
                 local convval = typeconv(options[key], val)
                 if convval == nil then
-                    msg.error("lua-opts: error converting value '" .. val ..
+                    msg.error("script-opts: error converting value '" .. val ..
                         "' for key '" .. key .. "'")
                 else
                     options[key] = convval
@@ -101,4 +109,9 @@ function read_options(options, identifier)
 
 end
 
+-- backwards compatibility with broken read_options export
+_G.read_options = read_options
 
+return {
+    read_options = read_options,
+}

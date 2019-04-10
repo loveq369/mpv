@@ -2,21 +2,20 @@
  * precise timer routines for Linux/UNIX
  * copyright (C) LGB & A'rpi/ASTRAL
  *
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <unistd.h>
@@ -26,7 +25,6 @@
 #include "config.h"
 #include "timer.h"
 
-#if HAVE_NANOSLEEP
 void mp_sleep_us(int64_t us)
 {
     if (us < 0)
@@ -36,14 +34,6 @@ void mp_sleep_us(int64_t us)
     ts.tv_nsec = (us % 1000000) * 1000;
     nanosleep(&ts, NULL);
 }
-#else
-void mp_sleep_us(int64_t us)
-{
-    if (us < 0)
-        return;
-    usleep(us);
-}
-#endif
 
 #if defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0 && defined(CLOCK_MONOTONIC)
 uint64_t mp_raw_time_us(void)

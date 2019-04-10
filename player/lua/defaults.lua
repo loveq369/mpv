@@ -1,3 +1,5 @@
+-- Compatibility shim for lua 5.2/5.3
+unpack = unpack or table.unpack
 
 -- these are used internally by lua.c
 mp.UNKNOWN_TYPE.info = "this value is inserted if the C type is not supported"
@@ -14,7 +16,7 @@ function mp.get_script_name()
 end
 
 function mp.get_opt(key, def)
-    local opts = mp.get_property_native("options/lua-opts")
+    local opts = mp.get_property_native("options/script-opts")
     local val = opts[key]
     if val == nil then
         val = def
@@ -22,7 +24,45 @@ function mp.get_opt(key, def)
     return val
 end
 
-local callbacks = {}
+function mp.input_define_section(section, contents, flags)
+    if flags == nil or flags == "" then
+        flags = "default"
+    end
+    mp.commandv("define-section", section, contents, flags)
+end
+
+function mp.input_enable_section(section, flags)
+    if flags == nil then
+        flags = ""
+    end
+    mp.commandv("enable-section", section, flags)
+end
+
+function mp.input_disable_section(section)
+    mp.commandv("disable-section", section)
+end
+
+-- For dispatching script-binding. This is sent as:
+--      script-message-to $script_name $binding_name $keystate
+-- The array is indexed by $binding_name, and has functions like this as value:
+--      fn($binding_name, $keystate)
+local dispatch_key_bindings = {}
+
+local message_id = 0
+local function reserve_binding()
+    message_id = message_id + 1
+    return "__keybinding" .. tostring(message_id)
+end
+
+local function dispatch_key_binding(name, state)
+    local fn = dispatch_key_bindings[name]
+    if fn then
+        fn(name, state)
+    end
+end
+
+-- "Old", deprecated API
+
 -- each script has its own section, so that they don't conflict
 local default_section = "input_dispatch_" .. mp.script_name
 
@@ -34,13 +74,8 @@ local default_section = "input_dispatch_" .. mp.script_name
 -- Note: the bindings are not active by default. Use enable_key_bindings().
 --
 -- list is an array of key bindings, where each entry is an array as follow:
---      {key, callback}
---      {key, callback, callback_down}
+--      {key, callback_press, callback_down, callback_up}
 -- key is the key string as used in input.conf, like "ctrl+a"
--- callback is a Lua function that is called when the key binding is used.
--- callback_down can be given too, and is called when a mouse button is pressed
--- if the key is a mouse button. (The normal callback will be for mouse button
--- down.)
 --
 -- callback can be a string too, in which case the following will be added like
 -- an input.conf line: key .. " " .. callback
@@ -52,10 +87,28 @@ function mp.set_key_bindings(list, section, flags)
         local key = entry[1]
         local cb = entry[2]
         local cb_down = entry[3]
-        if type(cb) == "function" then
-            callbacks[#callbacks + 1] = {press=cb, before_press=cb_down}
-            cfg = cfg .. key .. " script_dispatch " .. mp.script_name
-                  .. " " .. #callbacks .. "\n"
+        local cb_up = entry[4]
+        if type(cb) ~= "string" then
+            local mangle = reserve_binding()
+            dispatch_key_bindings[mangle] = function(name, state)
+                local event = state:sub(1, 1)
+                local is_mouse = state:sub(2, 2) == "m"
+                local def = (is_mouse and "u") or "d"
+                if event == "r" then
+                    return
+                end
+                if event == "p" and cb then
+                    cb()
+                elseif event == "d" and cb_down then
+                    cb_down()
+                elseif event == "u" and cb_up then
+                    cb_up()
+                elseif event == def and cb then
+                    cb()
+                end
+            end
+            cfg = cfg .. key .. " script-binding " ..
+                  mp.script_name .. "/" .. mangle .. "\n"
         else
             cfg = cfg .. key .. " " .. cb .. "\n"
         end
@@ -75,21 +128,9 @@ function mp.set_mouse_area(x0, y0, x1, y1, section)
     mp.input_set_section_mouse_area(section or default_section, x0, y0, x1, y1)
 end
 
-local function script_dispatch(event)
-    local cb = callbacks[event.arg0]
-    if cb then
-        if event.type == "press" and cb.press then
-            cb.press()
-        elseif event.type == "keyup_follows" and cb.before_press then
-            cb.before_press()
-        end
-    end
-end
-
 -- "Newer" and more convenient API
 
 local key_bindings = {}
-local message_id = 1
 
 local function update_key_bindings()
     for i = 1, 2 do
@@ -104,30 +145,73 @@ local function update_key_bindings()
         end
         local cfg = ""
         for k, v in pairs(key_bindings) do
-            if v.forced ~= def then
-                cfg = cfg .. v.key .. " script_message_to " .. mp.script_name
-                      .. " " .. v.name .. "\n"
+            if v.bind and v.forced ~= def then
+                cfg = cfg .. v.bind .. "\n"
             end
         end
         mp.input_define_section(section, cfg, flags)
         -- TODO: remove the section if the script is stopped
-        mp.input_enable_section(section)
+        mp.input_enable_section(section, "allow-hide-cursor+allow-vo-dragging")
     end
 end
 
-local function add_binding(attrs, key, name, fn)
+local function add_binding(attrs, key, name, fn, rp)
+    rp = rp or ""
     if (type(name) ~= "string") and (not fn) then
         fn = name
-        name = "message" .. tostring(message_id)
-        message_id = message_id + 1
+        name = reserve_binding()
     end
-    attrs.key = key
+    local repeatable = rp == "repeatable" or rp["repeatable"]
+    if rp["forced"] then
+        attrs.forced = true
+    end
+    local key_cb, msg_cb
+    if not fn then
+        fn = function() end
+    end
+    if rp["complex"] then
+        local key_states = {
+            ["u"] = "up",
+            ["d"] = "down",
+            ["r"] = "repeat",
+            ["p"] = "press",
+        }
+        key_cb = function(name, state)
+            fn({
+                event = key_states[state:sub(1, 1)] or "unknown",
+                is_mouse = state:sub(2, 2) == "m"
+            })
+        end
+        msg_cb = function()
+            fn({event = "press", is_mouse = false})
+        end
+    else
+        key_cb = function(name, state)
+            -- Emulate the same semantics as input.c uses for most bindings:
+            -- For keyboard, "down" runs the command, "up" does nothing;
+            -- for mouse, "down" does nothing, "up" runs the command.
+            -- Also, key repeat triggers the binding again.
+            local event = state:sub(1, 1)
+            local is_mouse = state:sub(2, 2) == "m"
+            if event == "r" and not repeatable then
+                return
+            end
+            if is_mouse and (event == "u" or event == "p") then
+                fn()
+            elseif (not is_mouse) and (event == "d" or event == "r" or event == "p") then
+                fn()
+            end
+        end
+        msg_cb = fn
+    end
+    if key and #key > 0 then
+        attrs.bind = key .. " script-binding " .. mp.script_name .. "/" .. name
+    end
     attrs.name = name
     key_bindings[name] = attrs
     update_key_bindings()
-    if fn then
-        mp.register_script_message(name, fn)
-    end
+    dispatch_key_bindings[name] = key_cb
+    mp.register_script_message(name, msg_cb)
 end
 
 function mp.add_key_binding(...)
@@ -140,6 +224,7 @@ end
 
 function mp.remove_key_binding(name)
     key_bindings[name] = nil
+    dispatch_key_bindings[name] = nil
     update_key_bindings()
     mp.unregister_script_message(name)
 end
@@ -188,6 +273,10 @@ function timer_mt.resume(t)
         t.next_deadline = mp.get_time() + timeout
         timers[t] = t
     end
+end
+
+function timer_mt.is_enabled(t)
+    return timers[t] ~= nil
 end
 
 -- Return the timer that expires next.
@@ -320,9 +409,28 @@ end
 
 -- default handlers
 mp.register_event("shutdown", function() mp.keep_running = false end)
-mp.register_event("script-input-dispatch", script_dispatch)
 mp.register_event("client-message", message_dispatch)
 mp.register_event("property-change", property_change)
+
+-- called before the event loop goes back to sleep
+local idle_handlers = {}
+
+function mp.register_idle(cb)
+    idle_handlers[#idle_handlers + 1] = cb
+end
+
+function mp.unregister_idle(cb)
+    local new = {}
+    for _, handler in ipairs(idle_handlers) do
+        if handler ~= cb then
+            new[#new + 1] = handler
+        end
+    end
+    idle_handlers = new
+end
+
+-- sent by "script-binding"
+mp.register_script_message("key-binding", dispatch_key_binding)
 
 mp.msg = {
     log = mp.log,
@@ -332,6 +440,7 @@ mp.msg = {
     info = function(...) return mp.log("info", ...) end,
     verbose = function(...) return mp.log("v", ...) end,
     debug = function(...) return mp.log("debug", ...) end,
+    trace = function(...) return mp.log("trace", ...) end,
 }
 
 _G.print = mp.msg.info
@@ -352,38 +461,37 @@ local function call_event_handlers(e)
     end
 end
 
-mp.use_suspend = true
+mp.use_suspend = false
+
+local suspend_warned = false
 
 function mp.dispatch_events(allow_wait)
     local more_events = true
     if mp.use_suspend then
-        mp.suspend()
+        if not suspend_warned then
+            mp.msg.error("mp.use_suspend is now ignored.")
+            suspend_warned = true
+        end
     end
     while mp.keep_running do
-        local wait = process_timers()
-        if wait == nil then
-            wait = 1e20 -- infinity for all practical purposes
-        end
-        if more_events or wait < 0 then
-            wait = 0
-        end
-        -- Resume playloop - important especially if an error happened while
-        -- suspended, and the error was handled, but no resume was done.
-        if wait > 0 then
+        local wait = 0
+        if not more_events then
+            wait = process_timers() or 1e20 -- infinity for all practical purposes
+            for _, handler in ipairs(idle_handlers) do
+                handler()
+            end
+            -- Resume playloop - important especially if an error happened while
+            -- suspended, and the error was handled, but no resume was done.
             mp.resume_all()
             if allow_wait ~= true then
                 return
             end
         end
         local e = mp.wait_event(wait)
-        -- Empty the event queue while suspended; otherwise, each
-        -- event will keep us waiting until the core suspends again.
-        if mp.use_suspend then
-            mp.suspend()
-        end
-        more_events = (e.event ~= "none")
-        if more_events then
+        more_events = false
+        if e.event ~= "none" then
             call_event_handlers(e)
+            more_events = true
         end
     end
 end
@@ -396,10 +504,65 @@ function mp.osd_message(text, duration)
     else
         duration = tostring(math.floor(duration * 1000))
     end
-    mp.commandv("show_text", text, duration)
+    mp.commandv("show-text", text, duration)
 end
 
-function mp.format_table(t, set)
+local hook_table = {}
+
+mp.register_event("hook", function(ev)
+    local fn = hook_table[tonumber(ev.id)]
+    if fn then
+        fn()
+    end
+    mp.raw_hook_continue(ev.hook_id)
+end)
+
+function mp.add_hook(name, pri, cb)
+    local id = #hook_table + 1
+    hook_table[id] = cb
+    -- The C API suggests using 0 for a neutral priority, but lua.rst suggests
+    -- 50 (?), so whatever.
+    mp.raw_hook_add(id, name, pri - 50)
+end
+
+local async_call_table = {}
+local async_next_id = 1
+
+function mp.command_native_async(node, cb)
+    local id = async_next_id
+    async_next_id = async_next_id + 1
+    local res, err = mp.raw_command_native_async(id, node)
+    if not res then
+        cb(false, nil, err)
+        return res, err
+    end
+    local t = {cb = cb, id = id}
+    async_call_table[id] = t
+    return t
+end
+
+mp.register_event("command-reply", function(ev)
+    local id = tonumber(ev.id)
+    local t = async_call_table[id]
+    local cb = t.cb
+    t.id = nil
+    async_call_table[id] = nil
+    if ev.error then
+        cb(false, nil, ev.error)
+    else
+        cb(true, ev.result, nil)
+    end
+end)
+
+function mp.abort_async_command(t)
+    if t.id ~= nil then
+        mp.raw_abort_async_command(t.id)
+    end
+end
+
+local mp_utils = package.loaded["mp.utils"]
+
+function mp_utils.format_table(t, set)
     if not set then
         set = { [t] = true }
     end
@@ -422,30 +585,74 @@ function mp.format_table(t, set)
             vals[#keys] = v
         end
     end
-    local function fmtval(v)
-        if type(v) == "string" then
-            return "\"" .. v .. "\""
-        elseif type(v) == "table" then
-            if set[v] then
-                return "[cycle]"
-            end
-            set[v] = true
-            return mp.format_table(v, set)
-        else
-            return tostring(v)
-        end
-    end
     for i = 1, #keys do
         if #res > 1 then
             res = res .. ", "
         end
         if i > arr then
-            res = res .. fmtval(keys[i]) .. " = "
+            res = res .. mp_utils.to_string(keys[i], set) .. " = "
         end
-        res = res .. fmtval(vals[i])
+        res = res .. mp_utils.to_string(vals[i], set)
     end
     res = res .. "}"
     return res
+end
+
+function mp_utils.to_string(v, set)
+    if type(v) == "string" then
+        return "\"" .. v .. "\""
+    elseif type(v) == "table" then
+        if set then
+            if set[v] then
+                return "[cycle]"
+            end
+            set[v] = true
+        end
+        return mp_utils.format_table(v, set)
+    else
+        return tostring(v)
+    end
+end
+
+function mp_utils.getcwd()
+    return mp.get_property("working-directory")
+end
+
+function mp_utils.format_bytes_humanized(b)
+    local d = {"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB"}
+    local i = 1
+    while b >= 1024 do
+        b = b / 1024
+        i = i + 1
+    end
+    return string.format("%0.2f %s", b, d[i] and d[i] or "*1024^" .. (i-1))
+end
+
+function mp_utils.subprocess(t)
+    local cmd = {}
+    cmd.name = "subprocess"
+    cmd.capture_stdout = true
+    for k, v in pairs(t) do
+        if k == "cancellable" then
+            k = "playback_only"
+        elseif k == "max_size" then
+            k = "capture_size"
+        end
+        cmd[k] = v
+    end
+    local res, err = mp.command_native(cmd)
+    if res == nil then
+        -- an error usually happens only if parsing failed (or no args passed)
+        res = {error_string = err, status = -1}
+    end
+    if res.error_string ~= "" then
+        res.error = res.error_string
+    end
+    return res
+end
+
+function mp_utils.subprocess_detached(t)
+    mp.commandv("run", unpack(t.args))
 end
 
 return {}

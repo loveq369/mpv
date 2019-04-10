@@ -1,19 +1,18 @@
 /*
- * This file is part of MPlayer.
+ * This file is part of mpv.
  *
- * MPlayer is free software; you can redistribute it and/or modify
+ * mpv is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * MPlayer is distributed in the hope that it will be useful,
+ * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with MPlayer; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -135,7 +134,11 @@ int ai_alsa_init(audio_in_t *ai)
 {
     int err;
 
-    err = snd_pcm_open(&ai->alsa.handle, ai->alsa.device, SND_PCM_STREAM_CAPTURE, 0);
+    const char *device = ai->alsa.device;
+    if (!device)
+        device = "default";
+
+    err = snd_pcm_open(&ai->alsa.handle, device, SND_PCM_STREAM_CAPTURE, 0);
     if (err < 0) {
         MP_ERR(ai, "Error opening audio: %s\n", snd_strerror(err));
         return -1;

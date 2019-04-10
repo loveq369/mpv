@@ -31,7 +31,7 @@
 
 #include <libavutil/intreadwrite.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "common/common.h"
 #include "stream.h"
 #include "rar.h"
@@ -257,8 +257,7 @@ exit:
 
     /* We stop on the first non empty file if we cannot seek */
     if (current) {
-        bool can_seek = s->end_pos > 0;
-        if (!can_seek && current->size > 0)
+        if (!s->seekable && current->size > 0)
             return -1;
     }
 
@@ -386,8 +385,7 @@ int RarParse(struct stream *s, int *count, rar_file_t ***file)
         if (!volume_mrl)
             goto done;
 
-        vol = stream_create(volume_mrl, STREAM_READ | STREAM_NO_FILTERS,
-                            s->cancel, s->global);
+        vol = stream_create(volume_mrl, STREAM_READ, s->cancel, s->global);
 
         if (!vol)
             goto done;
@@ -422,8 +420,7 @@ int  RarSeek(rar_file_t *file, uint64_t position)
     if (strcmp(old_chunk->mrl, file->current_chunk->mrl)) {
         if (file->s)
             free_stream(file->s);
-        file->s = stream_create(file->current_chunk->mrl,
-                                STREAM_READ | STREAM_NO_FILTERS,
+        file->s = stream_create(file->current_chunk->mrl, STREAM_READ,
                                 file->cancel, file->global);
     }
     return file->s ? stream_seek(file->s, offset) : 0;
@@ -438,13 +435,12 @@ ssize_t RarRead(rar_file_t *file, void *data, size_t size)
         if (max <= 0)
             break;
 
-        int r = file->s ? stream_read(file->s, data, max) : -1;
+        int r = stream_read(file->s, data, max);
         if (r <= 0)
             break;
 
         total += r;
-        if( data )
-            data = (char *)data + r;
+        data = (char *)data + r;
         file->i_pos += r;
         if (file->i_pos >= chunk_end &&
             RarSeek(file, file->i_pos))
